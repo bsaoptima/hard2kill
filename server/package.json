@@ -5,7 +5,7 @@
     "main": "./src/index.ts",
     "scripts": {
         "dev": "nodemon --watch src --exec ts-node src/index.ts",
-        "start": "ts-node src/index.ts"
+        "start": "ts-node --transpile-only src/index.ts"
     },
     "dependencies": {
         "@colyseus/monitor": "^0.14.0",
