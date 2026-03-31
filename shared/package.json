@@ -1,0 +1,9 @@
+{
+  "name": "@hard2kill/shared",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./supabase.ts",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.97.0"
+  }
+}

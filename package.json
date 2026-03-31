@@ -1,0 +1,27 @@
+{
+  "name": "hard2kill",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HARD2KILL - Skill-based gaming platform",
+  "workspaces": [
+    "platform",
+    "server",
+    "games/gladiatorz/client",
+    "games/gladiatorz/common",
+    "games/wasteland/client",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:platform\" \"npm run dev:server\"",
+    "dev:platform": "npm run dev --workspace=platform",
+    "dev:server": "npm run dev --workspace=server",
+    "build": "npm run build --workspaces",
+    "clean": "rm -rf node_modules */node_modules */*/node_modules */*/*/node_modules"
+  },
+  "devDependencies": {
+    "concurrently": "^7.0.0",
+    "typescript": "^4.6.2",
+    "esbuild": "^0.14.25",
+    "dotenv": "^17.3.1"
+  }
+}
