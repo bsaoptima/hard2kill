@@ -15,7 +15,7 @@
     "dev": "concurrently \"npm run dev:platform\" \"npm run dev:server\"",
     "dev:platform": "npm run dev --workspace=platform",
     "dev:server": "npm run dev --workspace=server",
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspace=platform",
     "start": "npm run start --workspace=server",
     "clean": "rm -rf node_modules */node_modules */*/node_modules */*/*/node_modules"
   },
