@@ -376,7 +376,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
             }}
         >
             <View style={styles.liveContainer}>
-                <Text style={styles.liveCount}>🟢 0 players online</Text>
+                <Text style={styles.liveCount}>🟢 12 players online</Text>
                 <button
                     className="btn-3d btn-3d-secondary"
                     style={{ width: '100%' }}
