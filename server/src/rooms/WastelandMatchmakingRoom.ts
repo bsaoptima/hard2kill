@@ -1,4 +1,4 @@
-import { Client, Room } from 'colyseus';
+import { Client, Room, matchMaker } from 'colyseus';
 import { Constants } from '@hard2kill/gladiatorz-common';
 
 interface WaitingPlayer {
@@ -60,18 +60,24 @@ export class WastelandMatchmakingRoom extends Room {
                     // Generate a unique match ID
                     const matchId = `wasteland_${Date.now()}`;
 
-                    console.log(`[Wasteland Matchmaking] Match created: ${matchId}`);
-
-                    // Send match info to both players
-                    player1.client.send('matchmaking:found', {
+                    // Create the actual game room on the server
+                    const gameRoom = await matchMaker.createRoom('wasteland', {
                         matchId,
+                        betAmount,
+                    });
+
+                    console.log(`[Wasteland Matchmaking] Match created: ${matchId} (roomId: ${gameRoom.roomId})`);
+
+                    // Send match info to both players with the actual room ID
+                    player1.client.send('matchmaking:found', {
+                        matchId: gameRoom.roomId,
                         isCreator: true,
                         playerName: player1.playerName,
                         opponentName: player2.playerName,
                         betAmount,
                     });
                     player2.client.send('matchmaking:found', {
-                        matchId,
+                        matchId: gameRoom.roomId,
                         isCreator: false,
                         playerName: player2.playerName,
                         opponentName: player1.playerName,

@@ -24,6 +24,25 @@ export default function App(): React.ReactElement {
     const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
 
     useEffect(() => {
+        // Function to ensure balance record exists
+        const ensureBalanceRecord = async (userId: string) => {
+            const { data, error } = await supabase
+                .from('balances')
+                .select('id')
+                .eq('id', userId)
+                .maybeSingle();
+
+            if (error) {
+                console.error('Error checking balance:', error);
+                return;
+            }
+
+            if (!data) {
+                console.log('Creating balance record for user:', userId);
+                await supabase.from('balances').insert({ id: userId, balance: 0 });
+            }
+        };
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             console.log('Auth state changed:', event, !!session);
 
@@ -31,17 +50,8 @@ export default function App(): React.ReactElement {
                 setUserId(session.user.id);
                 setShowAuthModal(false);
 
-                // Create balance row for new users
-                if (event === 'SIGNED_IN') {
-                    const { data } = await supabase
-                        .from('balances')
-                        .select('id')
-                        .eq('id', session.user.id)
-                        .single();
-                    if (!data) {
-                        await supabase.from('balances').insert({ id: session.user.id, balance: 0 });
-                    }
-                }
+                // Ensure balance record exists for all auth events
+                await ensureBalanceRecord(session.user.id);
             } else {
                 setUserId(null);
             }

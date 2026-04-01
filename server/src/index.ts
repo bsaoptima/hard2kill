@@ -1,4 +1,9 @@
-import 'dotenv/config';
+import { config } from 'dotenv';
+import { join } from 'path';
+
+// Load .env from root directory
+config({ path: join(__dirname, '../../.env') });
+
 import { monitor, MonitorOptions } from '@colyseus/monitor';
 import { Constants } from '@hard2kill/gladiatorz-common';
 import { Server } from 'colyseus';
@@ -6,7 +11,6 @@ import compression from 'compression';
 import cors from 'cors';
 import express from 'express';
 import { createServer } from 'http';
-import { join } from 'path';
 import Stripe from 'stripe';
 import { GameRoom } from './rooms/GameRoom';
 import { MatchmakingRoom } from './rooms/MatchmakingRoom';

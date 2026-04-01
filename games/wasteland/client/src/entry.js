@@ -22,7 +22,7 @@ import {  OBJLoader } from 'three/examples/jsm/loaders/OBJLoader'
 import {  SkeletonUtils } from 'three/examples/jsm/utils/SkeletonUtils'
 import NpcCharacterController from './entities/NPC/CharacterController'
 import Input from './Input'
-import { supabase, getCurrentUser, getBalance, getPot } from '@hard2kill/shared'
+// import { supabase, getCurrentUser, getBalance, getPot } from '@hard2kill/shared'
 
 import level from './assets/level.glb'
 import navmesh from './assets/navmesh.obj'

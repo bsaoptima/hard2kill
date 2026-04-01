@@ -76,8 +76,11 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
             if (stored) {
                 const parsed = JSON.parse(stored);
                 odinsId = parsed?.user?.id;
+                console.log('[Game] Retrieved odinsId from localStorage:', odinsId);
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error('[Game] Error parsing localStorage:', e);
+        }
 
         const isMatchmaking = !!parsedSearch.matchId;
 
@@ -107,6 +110,9 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
                 odinsId,
             };
         }
+
+        console.log('[Game] Joining with options:', options);
+
         // Connect
         try {
             const host = window.document.location.host.replace(/:.*/, '');
@@ -115,10 +121,12 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
 
             clientRef.current = new Client(url);
             if (isMatchmaking) {
-                roomRef.current = await clientRef.current.joinOrCreate(Constants.ROOM_NAME, {
+                const joinOptions = {
                     ...options,
                     matchId: parsedSearch.matchId,
-                });
+                };
+                console.log('[Game] Matchmaking join options:', joinOptions);
+                roomRef.current = await clientRef.current.joinOrCreate(Constants.ROOM_NAME, joinOptions);
                 window.history.replaceState(null, '', `/${roomRef.current.id}`);
             } else if (isNewRoom) {
                 roomRef.current = await clientRef.current.create(Constants.ROOM_NAME, options);

@@ -33,20 +33,37 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
     const wastelandClientRef = useRef<Client | null>(null);
     const wastelandRoomRef = useRef<any>(null);
 
+    // Gladiatorz matchmaking state
+    const [isGladiatorMatchmaking, setIsGladiatorMatchmaking] = useState(false);
+    const [gladiatorMatchmakingStatus, setGladiatorMatchmakingStatus] = useState('');
+    const [selectedGladiatorBet, setSelectedGladiatorBet] = useState(Constants.DEFAULT_BET_AMOUNT);
+
     // Get user and balance on mount and auth changes
     useEffect(() => {
         async function loadUserData(uid: string) {
             console.log('Loading user data for:', uid);
             try {
-                // Load balance
-                const { data: balanceData } = await supabase
+                // Load balance - use maybeSingle to avoid errors if row doesn't exist
+                const { data: balanceData, error: balanceError } = await supabase
                     .from('balances')
                     .select('balance')
                     .eq('id', uid)
-                    .single();
+                    .maybeSingle();
 
-                if (balanceData) {
+                if (balanceError) {
+                    console.error('Error loading balance:', balanceError);
+                } else if (balanceData) {
                     setBalance(balanceData.balance);
+                } else {
+                    // No balance record exists, create one
+                    console.log('Creating balance record for user');
+                    const { error: insertError } = await supabase
+                        .from('balances')
+                        .insert({ id: uid, balance: 0 });
+
+                    if (!insertError) {
+                        setBalance(0);
+                    }
                 }
 
                 // Load profile
@@ -271,6 +288,81 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
         }
     }
 
+    async function handleGladiatorMatchmaking() {
+        if (!userId) {
+            showAuth();
+            return;
+        }
+
+        if (isGladiatorMatchmaking) {
+            // Cancel matchmaking
+            if (roomRef.current) {
+                roomRef.current.leave();
+                roomRef.current = null;
+            }
+            setIsGladiatorMatchmaking(false);
+            setGladiatorMatchmakingStatus('');
+            return;
+        }
+
+        // Check if user has enough balance
+        if (balance === null || balance < selectedGladiatorBet) {
+            setGladiatorMatchmakingStatus(`Insufficient balance. Need $${selectedGladiatorBet} to play.`);
+            return;
+        }
+
+        setIsGladiatorMatchmaking(true);
+        setGladiatorMatchmakingStatus('Connecting...');
+
+        try {
+            const host = window.document.location.host.replace(/:.*/, '');
+            const port = process.env.NODE_ENV !== 'production' ? Constants.WS_PORT : window.location.port;
+            const url = `${window.location.protocol.replace('http', 'ws')}//${host}${port ? `:${port}` : ''}`;
+
+            clientRef.current = new Client(url);
+
+            const playerName = localStorage.getItem('playerName') || 'Player';
+
+            roomRef.current = await clientRef.current.joinOrCreate('matchmaking', {
+                playerName,
+                odinsId: userId,
+                betAmount: selectedGladiatorBet,
+            });
+
+            setGladiatorMatchmakingStatus(`Waiting for $${selectedGladiatorBet} opponent...`);
+
+            roomRef.current.onMessage('matchmaking:status', (data: any) => {
+                setGladiatorMatchmakingStatus(`Waiting for opponent... (Position: ${data.position})`);
+            });
+
+            roomRef.current.onMessage('matchmaking:found', async (data: any) => {
+                setGladiatorMatchmakingStatus('Match found! Joining...');
+                if (roomRef.current) {
+                    roomRef.current.leave();
+                    roomRef.current = null;
+                }
+
+                const params = new URLSearchParams({
+                    matchId: data.matchId,
+                    isCreator: data.isCreator.toString(),
+                    playerName: data.playerName,
+                    opponentName: data.opponentName,
+                    betAmount: data.betAmount.toString(),
+                });
+                navigate(`/${data.matchId}?${params.toString()}`);
+            });
+
+            roomRef.current.onLeave(() => {
+                setIsGladiatorMatchmaking(false);
+                setGladiatorMatchmakingStatus('');
+            });
+        } catch (error) {
+            console.error('Gladiator matchmaking error:', error);
+            setIsGladiatorMatchmaking(false);
+            setGladiatorMatchmakingStatus('Error connecting');
+        }
+    }
+
     return (
         <View
             flex
@@ -283,23 +375,16 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                 position: 'relative',
             }}
         >
-            {userId && (
-                <View style={styles.welcomeContainer}>
-                    <Text style={styles.welcomeText}>Welcome, {username || '...'}</Text>
-                    <button
-                        className="btn-3d btn-3d-secondary"
-                        style={{ width: '100%' }}
-                        onClick={() => {
-                            console.log("signing out")
-                            supabase.auth.signOut();
-                            localStorage.clear();
-                            window.location.reload();
-                        }}
-                    >
-                        <span className="btn-3d-top btn-3d-top-secondary">LOGOUT</span>
-                    </button>
-                </View>
-            )}
+            <View style={styles.liveContainer}>
+                <Text style={styles.liveCount}>🟢 0 players online</Text>
+                <button
+                    className="btn-3d btn-3d-secondary"
+                    style={{ width: '100%' }}
+                    onClick={() => setShowLeaderboard(true)}
+                >
+                    <span className="btn-3d-top btn-3d-top-secondary">LEADERBOARD</span>
+                </button>
+            </View>
 
             {userId ? (
                 <View style={styles.balanceContainer}>
@@ -318,9 +403,9 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                     <button
                         className="btn-3d btn-3d-secondary"
                         style={{ width: '100%' }}
-                        onClick={() => setShowLeaderboard(true)}
+                        onClick={() => {/* TODO: Navigate to profile */}}
                     >
-                        <span className="btn-3d-top btn-3d-top-secondary">LEADERBOARD</span>
+                        <span className="btn-3d-top btn-3d-top-secondary">CHECK MY PROFILE</span>
                     </button>
                 </View>
             ) : (
@@ -329,7 +414,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                 </button>
             )}
             <Space size="xxl" />
-            <Text style={styles.title}>HARD<span style={{ color: '#facc15' }}>2</span>KILL</Text>
+            <Text style={styles.title}>HARD<span style={{ color: '#39ff14' }}>2</span>KILL</Text>
             <Space size="xxs" />
             <Text style={styles.subtitle}>
                SKILL-BASED BETTING
@@ -346,15 +431,15 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
 
             <View style={styles.gamesGrid}>
                 <View style={styles.gameCard}>
-                    <View style={styles.gameImagePlaceholder}>
-                        <Text style={styles.playingForText}>PLAYING FOR</Text>
-                        <Text style={styles.playingForAmount}>${selectedWastelandBet}</Text>
-                    </View>
+                    <img
+                        src="https://i.giphy.com/fxfmMuGbh5aPtZ9T6j.webp"
+                        alt="Wasteland"
+                        style={styles.gameImage}
+                    />
                     <View style={styles.gameCardContent}>
-                        <View style={styles.gameTitleRow}>
-                            <Text style={styles.gameTitle}>Wasteland</Text>
-                            <Text style={styles.gameDescription}>3D FPS DeathMatch</Text>
-                        </View>
+                        <Text style={styles.gameTitle}>Wasteland</Text>
+                        <Space size="xs" />
+                        <Text style={styles.gameDescription}>FPS deathmatch. Eliminate your opponent to win money.</Text>
                         <Space size="m" />
 
                         <View style={styles.betSelector}>
@@ -365,9 +450,9 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                                         key={amount}
                                         style={{
                                             ...styles.betButton,
-                                            backgroundColor: selectedWastelandBet === amount ? '#facc15' : '#222',
+                                            backgroundColor: selectedWastelandBet === amount ? '#39ff14' : '#222',
                                             color: selectedWastelandBet === amount ? '#000' : '#fff',
-                                            borderColor: selectedWastelandBet === amount ? '#facc15' : '#333',
+                                            borderColor: selectedWastelandBet === amount ? '#39ff14' : '#333',
                                         }}
                                         onClick={() => setSelectedWastelandBet(amount)}
                                         disabled={isWastelandMatchmaking}
@@ -395,6 +480,61 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                         <Space size="xs" />
 
                         <button className="btn-3d btn-3d-secondary" onClick={() => navigate?.('/three-fps')}>
+                            <span className="btn-3d-top btn-3d-top-secondary">PLAY LOCAL</span>
+                        </button>
+                    </View>
+                </View>
+
+                <View style={styles.gameCard}>
+                    <img
+                        src="/banner.jpg"
+                        alt="Gladiatorz"
+                        style={styles.gameImage}
+                    />
+                    <View style={styles.gameCardContent}>
+                        <Text style={styles.gameTitle}>Gladiatorz</Text>
+                        <Space size="xs" />
+                        <Text style={styles.gameDescription}>Top-down dungeon crawler. Battle monsters and other players.</Text>
+                        <Space size="m" />
+
+                        <View style={styles.betSelector}>
+                            <Text style={styles.betLabel}>BET AMOUNT</Text>
+                            <View style={styles.betOptions}>
+                                {Constants.BET_AMOUNTS.map((amount) => (
+                                    <button
+                                        key={amount}
+                                        style={{
+                                            ...styles.betButton,
+                                            backgroundColor: selectedGladiatorBet === amount ? '#39ff14' : '#222',
+                                            color: selectedGladiatorBet === amount ? '#000' : '#fff',
+                                            borderColor: selectedGladiatorBet === amount ? '#39ff14' : '#333',
+                                        }}
+                                        onClick={() => setSelectedGladiatorBet(amount)}
+                                        disabled={isGladiatorMatchmaking}
+                                    >
+                                        ${amount}
+                                    </button>
+                                ))}
+                            </View>
+                        </View>
+                        <Space size="m" />
+
+                        <button className="btn-3d" onClick={handleGladiatorMatchmaking}>
+                            <span className="btn-3d-top">
+                                {isGladiatorMatchmaking ? 'CANCEL' : `FIND $${selectedGladiatorBet} MATCH`}
+                            </span>
+                        </button>
+
+                        {gladiatorMatchmakingStatus && (
+                            <>
+                                <Space size="s" />
+                                <Text style={styles.statusText}>{gladiatorMatchmakingStatus}</Text>
+                            </>
+                        )}
+
+                        <Space size="xs" />
+
+                        <button className="btn-3d btn-3d-secondary" onClick={() => navigate?.('/lobby')}>
                             <span className="btn-3d-top btn-3d-top-secondary">PLAY LOCAL</span>
                         </button>
                     </View>
@@ -593,7 +733,7 @@ function DepositModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: 
                             key={preset}
                             style={{
                                 ...depositStyles.presetButton,
-                                backgroundColor: amount === preset ? '#facc15' : '#222',
+                                backgroundColor: amount === preset ? '#39ff14' : '#222',
                                 color: amount === preset ? '#000' : '#fff',
                             }}
                             onClick={() => setAmount(preset)}
@@ -866,9 +1006,9 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
                             key={m.id}
                             style={{
                                 ...withdrawStyles.methodButton,
-                                backgroundColor: method === m.id ? '#facc15' : '#222',
+                                backgroundColor: method === m.id ? '#39ff14' : '#222',
                                 color: method === m.id ? '#000' : '#fff',
-                                borderColor: method === m.id ? '#facc15' : '#333',
+                                borderColor: method === m.id ? '#39ff14' : '#333',
                             }}
                             onClick={() => {
                                 setMethod(m.id);
@@ -950,7 +1090,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     },
     description: {
         fontSize: isMobile ? 14 : 18,
-        color: '#888',
+        color: '#fff',
         textAlign: 'center',
         padding: isMobile ? '0 16px' : 0,
     },
@@ -962,7 +1102,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         paddingLeft: isMobile ? 12 : 24,
         paddingRight: isMobile ? 12 : 24,
         width: '100%',
-        maxWidth: 600,
+        maxWidth: isMobile ? 600 : 900,
     },
     gameCard: {
         backgroundColor: '#111',
@@ -970,16 +1110,16 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: 8,
         padding: isMobile ? 14 : 18,
         display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'center' : 'stretch',
         gap: isMobile ? 16 : 20,
         width: '100%',
     },
     gameImage: {
-        width: '100%',
-        height: isMobile ? 180 : 240,
+        width: isMobile ? '100%' : 500,
+        height: isMobile ? 200 : 350,
+        objectFit: 'cover' as const,
         borderRadius: 8,
-        objectFit: 'cover',
     },
     gameImagePlaceholder: {
         width: '100%',
@@ -1002,7 +1142,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         fontSize: isMobile ? 48 : 72,
         fontFamily: '"Zen Dots", sans-serif',
         fontWeight: 'bold',
-        color: '#facc15',
+        color: '#39ff14',
     },
     placeholderIcon: {
         fontSize: isMobile ? 64 : 96,
@@ -1011,7 +1151,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     gameCardContent: {
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'center',
+        alignItems: isMobile ? 'center' : 'flex-start',
+        justifyContent: 'center',
         flex: 1,
         width: '100%',
     },
@@ -1023,14 +1164,18 @@ const styles: { [key: string]: React.CSSProperties } = {
         width: '100%',
     },
     gameTitle: {
-        fontSize: isMobile ? 20 : 24,
+        fontSize: isMobile ? 24 : 32,
         fontFamily: '"Zen Dots", sans-serif',
+        fontStyle: 'italic',
+        fontWeight: 'bold',
         color: '#fff',
+        letterSpacing: -1,
     },
     gameDescription: {
-        fontSize: isMobile ? 11 : 13,
-        color: '#888',
-        textAlign: 'right',
+        fontSize: isMobile ? 13 : 15,
+        color: '#fff',
+        lineHeight: 1.5,
+        textAlign: isMobile ? 'center' : 'left',
     },
     statusText: {
         color: '#888',
@@ -1080,7 +1225,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         letterSpacing: 1,
     },
     balanceText: {
-        color: '#facc15',
+        color: '#39ff14',
         fontSize: isMobile ? 18 : 24,
         fontWeight: 'bold',
     },
@@ -1100,7 +1245,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         cursor: 'pointer',
         marginTop: 4,
     },
-    welcomeContainer: {
+    liveContainer: {
         position: 'fixed',
         top: isMobile ? 12 : 24,
         left: isMobile ? 12 : 24,
@@ -1113,7 +1258,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         gap: 12,
         zIndex: 100,
     },
-    welcomeText: {
+    liveCount: {
         color: '#fff',
         fontSize: isMobile ? 14 : 16,
         fontWeight: 'bold',
@@ -1148,9 +1293,21 @@ const styles: { [key: string]: React.CSSProperties } = {
     },
     noBotsText: {
         fontSize: isMobile ? 16 : 20,
-        color: '#fff',
+        color: '#888',
         fontWeight: 'bold',
         textAlign: 'center',
+    },
+    overlayTitle: {
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        fontSize: isMobile ? 36 : 56,
+        fontFamily: '"Zen Dots", sans-serif',
+        fontStyle: 'italic',
+        fontWeight: 'bold',
+        color: '#fff',
+        letterSpacing: -2,
     },
 };
 
@@ -1247,12 +1404,12 @@ function LeaderboardModal({ onClose }: { onClose: () => void }) {
                         {entries.map((entry, index) => (
                             <View key={entry.winner_id} style={{
                                 ...leaderboardStyles.row,
-                                backgroundColor: index === 0 ? 'rgba(250, 204, 21, 0.1)' : 'transparent',
+                                backgroundColor: index === 0 ? 'rgba(57, 255, 20, 0.1)' : 'transparent',
                             }}>
                                 <Text style={{
                                     ...leaderboardStyles.cell,
                                     ...leaderboardStyles.rankCell,
-                                    color: index === 0 ? '#facc15' : index === 1 ? '#c0c0c0' : index === 2 ? '#cd7f32' : '#888',
+                                    color: index === 0 ? '#39ff14' : index === 1 ? '#c0c0c0' : index === 2 ? '#cd7f32' : '#888',
                                 }}>
                                     {index + 1}
                                 </Text>

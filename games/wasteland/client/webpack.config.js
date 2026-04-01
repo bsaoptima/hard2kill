@@ -16,9 +16,9 @@ module.exports = {
   module: {
     rules: [
       {
-        test: /\.js$/,
+        test: /\.(js|ts)$/,
         use: 'babel-loader',
-        exclude: path.resolve(__dirname, './node_modules/')
+        exclude: /node_modules/
       },
       {
         test: /\.(jpe?g|png|gif|svg|tga|glb|gltf|bin|fbx|babylon|mtl|pcb|pcd|prwm|obj|mat|mp3|ogg|wav)$/i,
@@ -33,6 +33,7 @@ module.exports = {
     ]
   },
   resolve: {
+    extensions: ['.js', '.ts'],
     alias: {
       vendor: path.resolve(__dirname, 'vendor')
     },

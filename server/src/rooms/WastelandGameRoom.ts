@@ -85,10 +85,8 @@ export class WastelandGameRoom extends Room<WastelandGameState> {
               potWon: potWon
             });
 
-            // If this is a match room, handle match end
-            if (this.isMatchRoom && this.matchPlayers.size === 2) {
-              await this.handleMatchEnd(client.sessionId, data.targetId);
-            }
+            // No longer closing the room - players continue playing
+            // Balance transactions only happen at the start when joining
           }
         }
       }

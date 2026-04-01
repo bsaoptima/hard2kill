@@ -1,6 +1,6 @@
 import * as _Ammo from "ammo.js"
 import * as THREE from 'three'
-import {ConvexHull} from '../node_modules/three/examples/jsm/math/ConvexHull'
+import {ConvexHull} from 'three/examples/jsm/math/ConvexHull'
 
 let Ammo = null;
 let rayOrigin = null;

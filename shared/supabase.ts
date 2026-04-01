@@ -1,13 +1,32 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL || 'https://nyxpjzexjzzilkwivoiv.supabase.co';
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55eHBqemV4anp6aWxrd2l2b2l2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MjM0ODQsImV4cCI6MjA4Njk5OTQ4NH0.eUVsjHs-uGAiKeOsPqk4gDW95MsG2WCG2Pod_K457e4';
+// Check if we're in Node.js (server) or browser
+const isServer = typeof window === 'undefined';
+
+const supabaseUrl = isServer
+    ? process.env.SUPABASE_URL || 'https://nyxpjzexjzzilkwivoiv.supabase.co'
+    : 'https://nyxpjzexjzzilkwivoiv.supabase.co';
+
+const supabaseAnonKey = isServer
+    ? process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55eHBqemV4anp6aWxrd2l2b2l2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MjM0ODQsImV4cCI6MjA4Njk5OTQ4NH0.eUVsjHs-uGAiKeOsPqk4gDW95MsG2WCG2Pod_K457e4'
+    : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im55eHBqemV4anp6aWxrd2l2b2l2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MjM0ODQsImV4cCI6MjA4Njk5OTQ4NH0.eUVsjHs-uGAiKeOsPqk4gDW95MsG2WCG2Pod_K457e4';
 
 // Extract project ref from URL for localStorage key
 const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\.supabase\.co/)?.[1] || '';
 export const SUPABASE_STORAGE_KEY = `sb-${projectRef}-auth-token`;
 
+// Client for regular operations (respects RLS)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Admin client for server operations (bypasses RLS) - Only available server-side!
+export const supabaseAdmin = isServer && process.env.SUPABASE_SERVICE_KEY
+    ? createClient(supabaseUrl, process.env.SUPABASE_SERVICE_KEY, {
+        auth: {
+            autoRefreshToken: false,
+            persistSession: false
+        }
+    })
+    : null as any; // Type assertion for client-side (will never be used)
 
 /**
  * Get the current user's balance (from session or by userId)
@@ -24,16 +43,20 @@ export async function getBalance(userId?: string): Promise<number> {
         targetUserId = session.user.id;
     }
 
-    const { data, error } = await supabase
+    // Use admin client if available (server-side), otherwise use regular client
+    const client = supabaseAdmin || supabase;
+
+    const { data, error } = await client
         .from('balances')
         .select('balance')
         .eq('id', targetUserId)
-        .single();
+        .maybeSingle();
 
     if (error) {
         console.error('Error fetching balance:', error);
         return 0;
     }
+
     return data?.balance || 0;
 }
 
@@ -104,18 +127,23 @@ export async function getCurrentUser() {
 }
 
 /**
- * Credit balance (used by Stripe webhook)
+ * Credit balance (used by Stripe webhook and server-side operations)
  */
 export async function creditBalance(userId: string, amount: number): Promise<void> {
-    const { data: balance } = await supabase
+    if (!supabaseAdmin) {
+        console.error('Cannot credit balance: admin client not available');
+        return;
+    }
+
+    const { data: balance } = await supabaseAdmin
         .from('balances')
         .select('balance')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
     const newBalance = (balance?.balance || 0) + amount;
 
-    await supabase
+    await supabaseAdmin
         .from('balances')
         .upsert({ id: userId, balance: newBalance });
 }
@@ -124,11 +152,16 @@ export async function creditBalance(userId: string, amount: number): Promise<voi
  * Deduct balance (used when placing bets)
  */
 export async function deductBalance(userId: string, amount: number): Promise<boolean> {
-    const { data: balance } = await supabase
+    if (!supabaseAdmin) {
+        console.error('Cannot deduct balance: admin client not available');
+        return false;
+    }
+
+    const { data: balance } = await supabaseAdmin
         .from('balances')
         .select('balance')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
     const currentBalance = balance?.balance || 0;
 
@@ -138,7 +171,7 @@ export async function deductBalance(userId: string, amount: number): Promise<boo
 
     const newBalance = currentBalance - amount;
 
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
         .from('balances')
         .update({ balance: newBalance })
         .eq('id', userId);

@@ -13,19 +13,27 @@ export default class NetworkManager extends Component {
 
     async Initialize() {
         // Connect to Colyseus server
-        // When running standalone: ws://localhost:2567
+        // When running standalone: ws://localhost:3001
         // When running in HARD2KILL iframe: proxied through /three-fps-ws
         const isIframe = window.self !== window.top;
         const wsUrl = isIframe
             ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/three-fps-ws`
-            : 'ws://localhost:2567';
+            : 'ws://localhost:3001';
 
         console.log('Connecting to Colyseus:', wsUrl);
         this.client = new Colyseus.Client(wsUrl);
 
         try {
-            // Join or create a game room
-            this.room = await this.client.joinOrCreate('game');
+            // Get matchId from URL if present
+            const urlParams = new URLSearchParams(window.location.search);
+            const matchId = urlParams.get('matchId');
+
+            // Join or create a wasteland game room
+            if (matchId) {
+                this.room = await this.client.joinById(matchId);
+            } else {
+                this.room = await this.client.joinOrCreate('wasteland');
+            }
             this.playerId = this.room.sessionId;
             this.isConnected = true;
 
@@ -141,6 +149,12 @@ export default class NetworkManager extends Component {
                 });
             });
 
+            // Listen for match end
+            this.room.onMessage('matchEnd', (data) => {
+                console.log('Match ended:', data);
+                // Handle match end (redirect, show results, etc.)
+            });
+
         } catch (error) {
             console.error('❌ Failed to connect to Colyseus:', error);
             console.log('Make sure the server is running: cd server && npm start');
@@ -149,11 +163,16 @@ export default class NetworkManager extends Component {
 
     // Send data to server
     Send(type, payload) {
-        if (!this.isConnected || !this.room) {
+        if (!this.isConnected || !this.room || !this.room.connection || this.room.connection.isOpen === false) {
             return;
         }
 
-        this.room.send(type, payload);
+        try {
+            this.room.send(type, payload);
+        } catch (error) {
+            // Connection closed, stop trying to send
+            this.isConnected = false;
+        }
     }
 
     // Request respawn

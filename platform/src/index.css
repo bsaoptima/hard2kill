@@ -43,7 +43,7 @@ a:hover {
     border: none;
     cursor: pointer;
     border-radius: 0.75em;
-    background: #a16207;
+    background: #1a7a0f;
     padding: 0;
     width: 100%;
 }
@@ -51,10 +51,10 @@ a:hover {
 .btn-3d-top {
     display: block;
     box-sizing: border-box;
-    border: 2px solid #a16207;
+    border: 2px solid #1a7a0f;
     border-radius: 0.75em;
     padding: 0.75em 1.5em;
-    background: #facc15;
+    background: #39ff14;
     color: #000;
     font-weight: bold;
     transform: translateY(-0.1em);

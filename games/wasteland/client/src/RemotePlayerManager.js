@@ -1,6 +1,11 @@
 import Component from './Component';
 import RemotePlayer from './entities/Player/RemotePlayer';
-import { updatePot, recordTransaction, getCurrentUser } from '@hard2kill/shared';
+// import { updatePot, recordTransaction, getCurrentUser } from '@hard2kill/shared';
+
+// Stub functions for now
+const updatePot = async (amount) => { console.log('updatePot:', amount); };
+const recordTransaction = async (amount, type) => { console.log('recordTransaction:', amount, type); };
+const getCurrentUser = async () => { console.log('getCurrentUser'); return null; };
 
 export default class RemotePlayerManager extends Component {
     constructor(scene, camera, mutantModel, mutantAnims, weaponModel) {

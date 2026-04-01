@@ -66,7 +66,9 @@ export class GameRoom extends Room<GameState> {
 
         // Check and deduct balance if user has odinsId
         if (options.odinsId && betAmount > 0) {
+            console.log(`${new Date().toISOString()} [Bet Check] userId=${options.odinsId} betAmount=${betAmount}`);
             const balance = await getBalance(options.odinsId);
+            console.log(`${new Date().toISOString()} [Bet Check] userId=${options.odinsId} balance=${balance}`);
             if (balance < betAmount) {
                 throw new Error(`Insufficient balance. Need ${betAmount}, have ${balance}`);
             }

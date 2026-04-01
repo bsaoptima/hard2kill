@@ -9,11 +9,11 @@ const BUTTON_SIZE = 56;
  */
 export const IconButton = React.memo(
     (props: {
-        icon: React.FunctionComponent<React.SVGProps<SVGSVGElement>>;
+        icon: React.FunctionComponent<React.SVGProps<SVGSVGElement>> | string;
         style?: CSSProperties;
         onClick: () => void;
     }): React.ReactElement => {
-        const { icon: Icon, style, onClick } = props;
+        const { icon, style, onClick } = props;
         const [hovered, setHovered] = React.useState(false);
 
         return (
@@ -26,7 +26,11 @@ export const IconButton = React.memo(
                 onHovered={(value: boolean) => setHovered(value)}
                 onClick={onClick}
             >
-                <Icon width={30} height={30} />
+                {typeof icon === 'string' ? (
+                    <img src={icon} width={30} height={30} alt="icon" />
+                ) : (
+                    React.createElement(icon, { width: 30, height: 30 })
+                )}
             </Container>
         );
     },
