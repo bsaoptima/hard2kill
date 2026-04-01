@@ -2,8 +2,10 @@ import { Constants, Maths, Models, Types } from '@hard2kill/gladiatorz-common';
 import { Client, Room } from 'colyseus';
 import { GameState } from '../states/GameState';
 import { creditBalance, deductBalance, getBalance } from '@hard2kill/shared';
+import { GladiatorBot } from '../bots/GladiatorBot';
 
 export class GameRoom extends Room<GameState> {
+    private bot?: GladiatorBot;
     //
     // Lifecycle
     //
@@ -79,6 +81,15 @@ export class GameRoom extends Room<GameState> {
         this.state.playerAdd(client.sessionId, options.playerName, options.odinsId);
 
         console.log(`${new Date().toISOString()} [Join] id=${client.sessionId} player=${options.playerName} odinsId=${options.odinsId}`);
+
+        // Count real players (not bots)
+        const realPlayers = Array.from(this.state.players.values()).filter(p => !p.playerId.startsWith('bot_'));
+
+        // Spawn bot immediately for matchmaking deathmatch
+        if (this.maxClients === 2 && this.state.game.mode === 'deathmatch' && !this.bot && realPlayers.length === 1) {
+            this.bot = new GladiatorBot(this.state);
+            console.log(`${new Date().toISOString()} [Bot] Spawned bot for matchmaking`);
+        }
     }
 
     onLeave(client: Client) {
@@ -87,11 +98,26 @@ export class GameRoom extends Room<GameState> {
         console.log(`${new Date().toISOString()} [Leave] id=${client.sessionId}`);
     }
 
+    onDispose() {
+        // Clean up bot
+        if (this.bot) {
+            this.bot.destroy();
+            this.bot = undefined;
+        }
+
+        console.log(`${new Date().toISOString()} [Dispose] Room disposed`);
+    }
+
     //
     // Handlers
     //
     handleTick = () => {
         this.state.update();
+
+        // Update bot if it exists
+        if (this.bot) {
+            this.bot.update();
+        }
     };
 
     handleMessage = (message: Models.MessageJSON) => {

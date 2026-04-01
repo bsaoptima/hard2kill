@@ -37,6 +37,8 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
     const [isGladiatorMatchmaking, setIsGladiatorMatchmaking] = useState(false);
     const [gladiatorMatchmakingStatus, setGladiatorMatchmakingStatus] = useState('');
     const [selectedGladiatorBet, setSelectedGladiatorBet] = useState(Constants.DEFAULT_BET_AMOUNT);
+    const [livePlayerCount, setLivePlayerCount] = useState(16);
+    const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
     // Get user and balance on mount and auth changes
     useEffect(() => {
@@ -108,6 +110,21 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
         });
 
         return () => subscription.unsubscribe();
+    }, []);
+
+    // Simulate live player count fluctuation
+    useEffect(() => {
+        const updatePlayerCount = () => {
+            setLivePlayerCount(prev => {
+                const changes = [-2, 0, 2]; // Only even changes
+                const change = changes[Math.floor(Math.random() * changes.length)];
+                const newCount = prev + change;
+                return Math.max(10, Math.min(30, newCount)); // Keep between 10-30
+            });
+        };
+
+        const interval = setInterval(updatePlayerCount, 5000 + Math.random() * 5000); // 5-10 seconds
+        return () => clearInterval(interval);
     }, []);
 
     async function fetchBalance() {
@@ -372,64 +389,101 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                 backgroundColor: '#000',
                 flexDirection: 'column',
                 padding: 32,
+                paddingTop: isMobile ? 80 : 100,
                 position: 'relative',
             }}
         >
-            <View style={styles.liveContainer}>
-                <Text style={styles.liveCount}>🟢 12 players online</Text>
-                <button
-                    className="btn-3d btn-3d-secondary"
-                    style={{ width: '100%' }}
-                    onClick={() => setShowLeaderboard(true)}
-                >
-                    <span className="btn-3d-top btn-3d-top-secondary">LEADERBOARD</span>
-                </button>
-            </View>
+            <View style={styles.navbar}>
+                <Text style={styles.navbarTitle}>HARD<span style={{ color: '#39ff14' }}>2</span>KILL</Text>
 
-            {userId ? (
-                <View style={styles.balanceContainer}>
-                    <View style={styles.balanceInfo}>
-                        <Text style={styles.balanceLabel}>Balance</Text>
-                        <Text style={styles.balanceText}>${balance !== null ? balance : '...'}</Text>
-                    </View>
-                    <View style={styles.balanceButtons}>
-                        <button className="btn-3d" style={styles.balanceButton} onClick={() => setShowDepositModal(true)}>
-                            <span className="btn-3d-top">+ DEPOSIT</span>
-                        </button>
-                        <button className="btn-3d btn-3d-secondary" style={styles.balanceButton} onClick={() => setShowWithdrawModal(true)}>
-                            <span className="btn-3d-top btn-3d-top-secondary">WITHDRAW</span>
+                {userId ? (
+                    <View style={styles.navbarRight}>
+                        <View style={styles.balanceContainer2}>
+                            <Text style={styles.balanceValue2}>${balance !== null ? balance.toLocaleString('en-US') : '...'}</Text>
+                            <button style={styles.depositButton} onClick={() => setShowDepositModal(true)}>
+                                DEPOSIT
+                            </button>
+                        </View>
+                        <button style={styles.profileIconButton} onClick={() => {/* TODO: Navigate to profile */}}>
+                            <img src="/user.svg" alt="Profile" style={styles.profileIcon} />
                         </button>
                     </View>
-                    <button
-                        className="btn-3d btn-3d-secondary"
-                        style={{ width: '100%' }}
-                        onClick={() => {/* TODO: Navigate to profile */}}
-                    >
-                        <span className="btn-3d-top btn-3d-top-secondary">CHECK MY PROFILE</span>
+                ) : (
+                    <button className="btn-3d" style={styles.navButton} onClick={showAuth}>
+                        <span className="btn-3d-top">LOGIN</span>
                     </button>
-                </View>
-            ) : (
-                <button className="btn-3d" style={styles.loginButton} onClick={showAuth}>
-                    <span className="btn-3d-top">LOGIN</span>
-                </button>
-            )}
-            <Space size="xxl" />
-            <Text style={styles.title}>HARD<span style={{ color: '#39ff14' }}>2</span>KILL</Text>
-            <Space size="xxs" />
-            <Text style={styles.subtitle}>
-               SKILL-BASED BETTING
-            </Text>
+                )}</View>
+            <Space size="xl" />
+            <Text style={styles.tagline}>Play PvP games. Beat the opponent. Take their money</Text>
+            <Space size="xs" />
+            <Text style={styles.mainHeading}>SKILL-BASED BETTING</Text>
             <Space size="xs" />
             <Text style={styles.description}>
-                Play PvP games. Beat your opponent. Take their money.
-            </Text>
-            <Space size="s" />
-            <Text style={styles.noBotsText}>
-                100% real human opponents. No bots. Ever.
+                Make money play video games against other humans
             </Text>
             <Space size="xl" />
 
             <View style={styles.gamesGrid}>
+                <View style={styles.gameCard}>
+                    <div style={{overflow: 'hidden', borderRadius: 8, width: isMobile ? '100%' : 500, height: isMobile ? 200 : 350}}>
+                        <video
+                            src="/gladiatorz.mov"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            style={{...styles.gameImage, transform: 'scale(1.15)'} as React.CSSProperties}
+                        />
+                    </div>
+                    <View style={styles.gameCardContent}>
+                        <Text style={styles.gameTitle}>Gladiatorz</Text>
+                        <Space size="xs" />
+                        <Text style={styles.gameDescription}>Top-down dungeon crawler. Battle monsters and other players.</Text>
+                        <Space size="m" />
+
+                        <View style={styles.betSelector}>
+                            <Text style={styles.betLabel}>BET AMOUNT</Text>
+                            <View style={styles.betOptions}>
+                                {Constants.BET_AMOUNTS.map((amount) => (
+                                    <button
+                                        key={amount}
+                                        style={{
+                                            ...styles.betButton,
+                                            backgroundColor: selectedGladiatorBet === amount ? '#39ff14' : '#222',
+                                            color: selectedGladiatorBet === amount ? '#000' : '#fff',
+                                            borderColor: selectedGladiatorBet === amount ? '#39ff14' : '#333',
+                                        }}
+                                        onClick={() => setSelectedGladiatorBet(amount)}
+                                        disabled={isGladiatorMatchmaking}
+                                    >
+                                        ${amount}
+                                    </button>
+                                ))}
+                            </View>
+                        </View>
+                        <Space size="m" />
+
+                        <button className="btn-3d" onClick={handleGladiatorMatchmaking}>
+                            <span className="btn-3d-top">
+                                {isGladiatorMatchmaking ? 'CANCEL' : `FIND $${selectedGladiatorBet} MATCH`}
+                            </span>
+                        </button>
+
+                        {gladiatorMatchmakingStatus && (
+                            <>
+                                <Space size="s" />
+                                <Text style={styles.statusText}>{gladiatorMatchmakingStatus}</Text>
+                            </>
+                        )}
+
+                        <Space size="xs" />
+
+                        <View style={styles.livePlayersContainer}>
+                            <Text style={styles.livePlayersText}>🟢 {livePlayerCount} players currently online</Text>
+                        </View>
+                    </View>
+                </View>
+
                 <View style={styles.gameCard}>
                     <img
                         src="https://i.giphy.com/fxfmMuGbh5aPtZ9T6j.webp"
@@ -484,60 +538,52 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                         </button>
                     </View>
                 </View>
+            </View>
 
-                <View style={styles.gameCard}>
-                    <img
-                        src="/banner.jpg"
-                        alt="Gladiatorz"
-                        style={styles.gameImage}
-                    />
-                    <View style={styles.gameCardContent}>
-                        <Text style={styles.gameTitle}>Gladiatorz</Text>
-                        <Space size="xs" />
-                        <Text style={styles.gameDescription}>Top-down dungeon crawler. Battle monsters and other players.</Text>
-                        <Space size="m" />
+            <Space size="xxl" />
 
-                        <View style={styles.betSelector}>
-                            <Text style={styles.betLabel}>BET AMOUNT</Text>
-                            <View style={styles.betOptions}>
-                                {Constants.BET_AMOUNTS.map((amount) => (
-                                    <button
-                                        key={amount}
-                                        style={{
-                                            ...styles.betButton,
-                                            backgroundColor: selectedGladiatorBet === amount ? '#39ff14' : '#222',
-                                            color: selectedGladiatorBet === amount ? '#000' : '#fff',
-                                            borderColor: selectedGladiatorBet === amount ? '#39ff14' : '#333',
-                                        }}
-                                        onClick={() => setSelectedGladiatorBet(amount)}
-                                        disabled={isGladiatorMatchmaking}
-                                    >
-                                        ${amount}
-                                    </button>
-                                ))}
-                            </View>
+            {/* FAQ Section */}
+            <View style={styles.faqSection}>
+                <Text style={styles.faqTitle}>Frequently Asked Questions</Text>
+                <Space size="m" />
+                <View style={styles.faqList}>
+                    {[
+                        {
+                            question: "Is this legal?",
+                            answer: "Yes. HARD2KILL is a skill-based gaming platform, not gambling. You compete against other players using your gaming skills, similar to chess or poker tournaments. Skill-based competitions are legal in most jurisdictions."
+                        },
+                        {
+                            question: "How do I withdraw my winnings?",
+                            answer: "Click on your balance in the top right, select 'Withdraw', choose your payment method (PayPal, Crypto, or Bank Transfer), and enter your details. Withdrawals are typically processed within 24-48 hours."
+                        },
+                        {
+                            question: "How do I know the games aren't rigged?",
+                            answer: "You play against real human opponents, not bots or the house. Our games are server-authoritative, meaning all game logic runs on our servers to prevent cheating. We have no incentive to rig games - we only take a small platform fee."
+                        },
+                        {
+                            question: "What fees do you charge?",
+                            answer: "We take a 5% platform fee on winnings. Deposits are free. Withdrawal fees depend on your chosen method: PayPal (2%), Crypto (network fees only), Bank Transfer ($2 flat fee)."
+                        },
+                        {
+                            question: "Is my money safe?",
+                            answer: "Yes. All funds are held in secure, segregated accounts. We use bank-grade encryption and never store payment details. Your balance is always available for immediate withdrawal."
+                        }
+                    ].map((faq, index) => (
+                        <View key={index} style={styles.faqItem}>
+                            <button
+                                style={styles.faqQuestion}
+                                onClick={() => setOpenFaqIndex(openFaqIndex === index ? null : index)}
+                            >
+                                <Text style={styles.faqQuestionText}>{faq.question}</Text>
+                                <Text style={styles.faqIcon}>{openFaqIndex === index ? '−' : '+'}</Text>
+                            </button>
+                            {openFaqIndex === index && (
+                                <View style={styles.faqAnswer}>
+                                    <Text style={styles.faqAnswerText}>{faq.answer}</Text>
+                                </View>
+                            )}
                         </View>
-                        <Space size="m" />
-
-                        <button className="btn-3d" onClick={handleGladiatorMatchmaking}>
-                            <span className="btn-3d-top">
-                                {isGladiatorMatchmaking ? 'CANCEL' : `FIND $${selectedGladiatorBet} MATCH`}
-                            </span>
-                        </button>
-
-                        {gladiatorMatchmakingStatus && (
-                            <>
-                                <Space size="s" />
-                                <Text style={styles.statusText}>{gladiatorMatchmakingStatus}</Text>
-                            </>
-                        )}
-
-                        <Space size="xs" />
-
-                        <button className="btn-3d btn-3d-secondary" onClick={() => navigate?.('/lobby')}>
-                            <span className="btn-3d-top btn-3d-top-secondary">PLAY LOCAL</span>
-                        </button>
-                    </View>
+                    ))}
                 </View>
             </View>
 
@@ -1071,6 +1117,98 @@ const withdrawStyles: { [key: string]: React.CSSProperties } = {
 };
 
 const styles: { [key: string]: React.CSSProperties } = {
+    navbar: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: isMobile ? 60 : 80,
+        backgroundColor: '#000',
+        borderBottom: '1px solid #222',
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: isMobile ? '0 16px' : '0 32px',
+        zIndex: 1000,
+    },
+    navbarTitle: {
+        fontSize: isMobile ? 20 : 28,
+        fontFamily: '"Zen Dots", sans-serif',
+        fontStyle: 'italic',
+        fontWeight: 'bold',
+        color: '#fff',
+        letterSpacing: -1,
+    },
+    navbarRight: {
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: isMobile ? 8 : 12,
+    },
+    balanceContainer2: {
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        border: '1px solid #333',
+        borderRadius: 8,
+        overflow: 'hidden',
+        backgroundColor: '#111',
+    },
+    balanceValue2: {
+        fontSize: isMobile ? 16 : 20,
+        fontWeight: 'bold',
+        color: '#fff',
+        padding: isMobile ? '8px 12px' : '10px 16px',
+    },
+    depositButton: {
+        backgroundColor: '#39ff14',
+        color: '#000',
+        fontWeight: 'bold',
+        fontSize: isMobile ? 12 : 14,
+        padding: isMobile ? '0 12px' : '0 16px',
+        border: 'none',
+        borderLeft: '1px solid #1a7a0f',
+        cursor: 'pointer',
+        transition: 'opacity 0.2s',
+        alignSelf: 'stretch',
+        display: 'flex',
+        alignItems: 'center',
+    },
+    profileIconButton: {
+        width: isMobile ? 40 : 48,
+        height: isMobile ? 40 : 48,
+        borderRadius: '50%',
+        border: '1px solid #333',
+        backgroundColor: '#111',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        transition: 'border-color 0.2s',
+    },
+    profileIcon: {
+        width: isMobile ? 20 : 24,
+        height: isMobile ? 20 : 24,
+        color: '#fff',
+    },
+    tagline: {
+        fontSize: isMobile ? 14 : 18,
+        color: '#fff',
+        textAlign: 'center',
+        textTransform: 'uppercase',
+        letterSpacing: 2,
+    },
+    mainHeading: {
+        fontSize: isMobile ? 32 : 56,
+        fontFamily: '"Zen Dots", sans-serif',
+        fontStyle: 'italic',
+        fontWeight: 'bold',
+        color: '#fff',
+        textAlign: 'center',
+        lineHeight: 1.2,
+        letterSpacing: -1,
+    },
     title: {
         fontSize: isMobile ? 36 : 64,
         fontFamily: '"Zen Dots", sans-serif',
@@ -1089,7 +1227,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         textAlign: 'center',
     },
     description: {
-        fontSize: isMobile ? 14 : 18,
+        fontSize: isMobile ? 16 : 20,
         color: '#fff',
         textAlign: 'center',
         padding: isMobile ? '0 16px' : 0,
@@ -1181,6 +1319,21 @@ const styles: { [key: string]: React.CSSProperties } = {
         color: '#888',
         fontSize: isMobile ? 12 : 14,
     },
+    livePlayersContainer: {
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: isMobile ? '8px 12px' : '10px 16px',
+        backgroundColor: '#111',
+        border: '1px solid #333',
+        borderRadius: 8,
+        alignSelf: 'stretch',
+    },
+    livePlayersText: {
+        color: '#fff',
+        fontSize: isMobile ? 13 : 15,
+        fontWeight: 'bold',
+    },
     comingSoon: {
         fontSize: isMobile ? 14 : 18,
         fontFamily: '"Zen Dots", sans-serif',
@@ -1193,11 +1346,69 @@ const styles: { [key: string]: React.CSSProperties } = {
         textAlign: 'center',
         padding: isMobile ? '0 16px' : 0,
     },
-    loginButton: {
-        position: 'absolute',
-        top: isMobile ? 12 : 24,
-        right: isMobile ? 12 : 24,
+    faqSection: {
+        width: '100%',
+        maxWidth: isMobile ? 600 : 900,
+        padding: isMobile ? '0 12px' : '0 24px',
+    },
+    faqTitle: {
+        fontSize: isMobile ? 24 : 32,
+        fontFamily: '"Zen Dots", sans-serif',
+        fontWeight: 'bold',
+        color: '#fff',
+        textAlign: 'center',
+    },
+    faqList: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: isMobile ? 12 : 16,
+    },
+    faqItem: {
+        backgroundColor: '#111',
+        border: '1px solid #333',
+        borderRadius: 8,
+        overflow: 'hidden',
+    },
+    faqQuestion: {
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: isMobile ? '16px' : '20px',
+        backgroundColor: 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        transition: 'background-color 0.2s',
+    },
+    faqQuestionText: {
+        fontSize: isMobile ? 16 : 18,
+        fontWeight: 'bold',
+        color: '#fff',
+        textAlign: 'left',
+    },
+    faqIcon: {
+        fontSize: isMobile ? 24 : 28,
+        color: '#39ff14',
+        fontWeight: 'bold',
+    },
+    faqAnswer: {
+        padding: isMobile ? '12px 16px 16px 16px' : '16px 20px 20px 20px',
+        borderTop: '1px solid #222',
+    },
+    faqAnswerText: {
+        fontSize: isMobile ? 14 : 16,
+        color: '#ccc',
+        lineHeight: 1.6,
+    },
+    balanceValue: {
+        fontSize: isMobile ? 18 : 24,
+        fontWeight: 'bold',
+        color: '#fff',
+    },
+    navButton: {
         width: 'auto',
+        minWidth: isMobile ? 80 : 100,
     },
     balanceContainer: {
         position: 'fixed',
@@ -1244,24 +1455,6 @@ const styles: { [key: string]: React.CSSProperties } = {
         fontSize: isMobile ? 10 : 12,
         cursor: 'pointer',
         marginTop: 4,
-    },
-    liveContainer: {
-        position: 'fixed',
-        top: isMobile ? 12 : 24,
-        left: isMobile ? 12 : 24,
-        backgroundColor: '#111',
-        border: '1px solid #333',
-        borderRadius: 8,
-        padding: isMobile ? '12px 16px' : '16px 20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-        zIndex: 100,
-    },
-    liveCount: {
-        color: '#fff',
-        fontSize: isMobile ? 14 : 16,
-        fontWeight: 'bold',
     },
     betSelector: {
         display: 'flex',

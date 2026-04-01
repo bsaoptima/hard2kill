@@ -97,6 +97,12 @@ export class Game extends Schema {
             return;
         }
 
+        // If lobby timer not set yet (initial state or after bot joins), initialize it
+        if (!this.lobbyEndsAt && countPlayers(players) > 1) {
+            this.lobbyEndsAt = Date.now() + Constants.LOBBY_DURATION;
+            this.onLobbyStart();
+        }
+
         // If the lobby is over, the game starts.
         if (this.lobbyEndsAt < Date.now()) {
             this.startGame();

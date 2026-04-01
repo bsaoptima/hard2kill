@@ -41,51 +41,31 @@ export class MatchmakingRoom extends Room {
     }
 
     private async tryMatch() {
-        // Group players by bet amount and try to match within each group
-        const betAmounts = [...new Set(this.waitingPlayers.map(p => p.betAmount))];
+        // Match each waiting player against a bot immediately
+        while (this.waitingPlayers.length > 0) {
+            const player = this.waitingPlayers.shift();
+            if (!player) continue;
 
-        for (const betAmount of betAmounts) {
-            const playersAtAmount = this.waitingPlayers.filter(p => p.betAmount === betAmount);
+            console.log(`[Matchmaking] Matching ${player.playerName} vs Bot (bet: $${player.betAmount})`);
 
-            if (playersAtAmount.length >= 2) {
-                const player1 = playersAtAmount[0];
-                const player2 = playersAtAmount[1];
+            try {
+                // Generate a unique match ID
+                const matchId = `match_${Date.now()}`;
 
-                // Remove from waiting list
-                this.waitingPlayers = this.waitingPlayers.filter(
-                    p => p.client.sessionId !== player1.client.sessionId && p.client.sessionId !== player2.client.sessionId
-                );
+                console.log(`[Matchmaking] Match created: ${matchId}`);
 
-                console.log(`[Matchmaking] Matching ${player1.playerName} vs ${player2.playerName} (bet: $${betAmount})`);
-
-                try {
-                    // Generate a unique match ID
-                    const matchId = `match_${Date.now()}`;
-
-                    console.log(`[Matchmaking] Match created: ${matchId}`);
-
-                    // Send match info to both players - first player creates, second joins
-                    player1.client.send('matchmaking:found', {
-                        matchId,
-                        isCreator: true,
-                        playerName: player1.playerName,
-                        opponentName: player2.playerName,
-                        betAmount,
-                    });
-                    player2.client.send('matchmaking:found', {
-                        matchId,
-                        isCreator: false,
-                        playerName: player2.playerName,
-                        opponentName: player1.playerName,
-                        betAmount,
-                    });
-                } catch (error) {
-                    console.error('[Matchmaking] Failed to create room:', error);
-
-                    // Put players back in queue
-                    this.waitingPlayers.push(player1);
-                    this.waitingPlayers.push(player2);
-                }
+                // Send match info to player - they will create the room and bot will join automatically
+                player.client.send('matchmaking:found', {
+                    matchId,
+                    isCreator: true,
+                    playerName: player.playerName,
+                    opponentName: 'Bot', // Generic name, actual bot name is randomized
+                    betAmount: player.betAmount,
+                });
+            } catch (error) {
+                console.error('[Matchmaking] Failed to create match:', error);
+                // Put player back in queue
+                this.waitingPlayers.push(player);
             }
         }
     }
