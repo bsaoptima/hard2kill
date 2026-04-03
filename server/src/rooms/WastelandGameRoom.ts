@@ -14,6 +14,7 @@ export class WastelandGameRoom extends Room<WastelandGameState> {
   private betAmount: number = 0;
   private matchPlayers: Map<string, MatchPlayer> = new Map();
   private isMatchRoom: boolean = false;
+  private matchStartedAt?: Date;
 
   onCreate(options: any) {
     console.log('[Wasteland] GameRoom created:', this.roomId);
@@ -147,6 +148,12 @@ export class WastelandGameRoom extends Room<WastelandGameState> {
       }
 
       console.log(`[Wasteland Match] ${playerName} joined match (${this.matchPlayers.size}/2)`);
+
+      // Start tracking match time when both players have joined
+      if (this.matchPlayers.size === 2) {
+        this.matchStartedAt = new Date();
+        console.log(`[Wasteland Match] Match started at ${this.matchStartedAt.toISOString()}`);
+      }
     }
 
     console.log('[Wasteland] Total players:', this.state.players.size);
@@ -171,13 +178,12 @@ export class WastelandGameRoom extends Room<WastelandGameState> {
     }
 
     // Log match result to database
-    if (winner.userId && loser.userId) {
+    if (winner.userId && loser.userId && this.matchStartedAt) {
       await logGameResult(
         winner.userId,
         loser.userId,
-        this.betAmount,
-        0, // duration - could track this if needed
-        'wasteland'
+        this.betAmount * 2,
+        this.matchStartedAt
       );
     }
 

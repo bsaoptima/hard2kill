@@ -10,6 +10,7 @@ export const PLAYERS_REFRESH = 1000;
 export const DEBUG = false;
 export const BET_AMOUNTS = [1, 5, 10];
 export const DEFAULT_BET_AMOUNT = 5;
+export const BOT_USER_ID = 'e1a2763b-8862-4e49-b935-fcf547d90f3a'; // Special bot account for game_history
 
 // Game
 export const MAPS_NAMES = ['small', 'gigantic'];

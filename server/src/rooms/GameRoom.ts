@@ -6,6 +6,7 @@ import { GladiatorBot } from '../bots/GladiatorBot';
 
 export class GameRoom extends Room<GameState> {
     private bot?: GladiatorBot;
+    private botSpawnTimer?: NodeJS.Timeout;
     //
     // Lifecycle
     //
@@ -85,10 +86,28 @@ export class GameRoom extends Room<GameState> {
         // Count real players (not bots)
         const realPlayers = Array.from(this.state.players.values()).filter(p => !p.playerId.startsWith('bot_'));
 
-        // Spawn bot immediately for matchmaking deathmatch
-        if (this.maxClients === 2 && this.state.game.mode === 'deathmatch' && !this.bot && realPlayers.length === 1) {
-            this.bot = new GladiatorBot(this.state);
-            console.log(`${new Date().toISOString()} [Bot] Spawned bot for matchmaking`);
+        // For 2-player deathmatch, handle bot spawning
+        if (this.maxClients === 2 && this.state.game.mode === 'deathmatch') {
+            if (realPlayers.length === 1 && !this.bot && !this.botSpawnTimer) {
+                // First player joined, wait 2 seconds for second player before spawning bot
+                console.log(`${new Date().toISOString()} [Bot] Waiting 2s for second player...`);
+                this.botSpawnTimer = setTimeout(() => {
+                    // Check if second player joined
+                    const currentRealPlayers = Array.from(this.state.players.values()).filter(p => !p.playerId.startsWith('bot_'));
+                    if (currentRealPlayers.length === 1 && !this.bot) {
+                        this.bot = new GladiatorBot(this.state);
+                        console.log(`${new Date().toISOString()} [Bot] Spawned bot (no second player found)`);
+                    }
+                    this.botSpawnTimer = undefined;
+                }, 2000);
+            } else if (realPlayers.length === 2) {
+                // Second player joined! Cancel bot spawn if scheduled
+                if (this.botSpawnTimer) {
+                    clearTimeout(this.botSpawnTimer);
+                    this.botSpawnTimer = undefined;
+                    console.log(`${new Date().toISOString()} [Bot] Cancelled bot spawn - second player joined`);
+                }
+            }
         }
     }
 
@@ -99,6 +118,12 @@ export class GameRoom extends Room<GameState> {
     }
 
     onDispose() {
+        // Clean up bot spawn timer
+        if (this.botSpawnTimer) {
+            clearTimeout(this.botSpawnTimer);
+            this.botSpawnTimer = undefined;
+        }
+
         // Clean up bot
         if (this.bot) {
             this.bot.destroy();

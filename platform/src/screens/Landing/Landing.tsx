@@ -404,7 +404,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                                 DEPOSIT
                             </button>
                         </View>
-                        <button style={styles.profileIconButton} onClick={() => {/* TODO: Navigate to profile */}}>
+                        <button style={styles.profileIconButton} onClick={() => navigate?.('/profile')}>
                             <img src="/user.svg" alt="Profile" style={styles.profileIcon} />
                         </button>
                     </View>
@@ -438,7 +438,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                     <View style={styles.gameCardContent}>
                         <Text style={styles.gameTitle}>Gladiatorz</Text>
                         <Space size="xs" />
-                        <Text style={styles.gameDescription}>Top-down dungeon crawler. Battle monsters and other players.</Text>
+                        <Text style={styles.gameDescription}>Shoot your opponent 3 times to win in this Brawlstar like arcade game.</Text>
                         <Space size="m" />
 
                         <View style={styles.betSelector}>
@@ -496,46 +496,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                         <Text style={styles.gameDescription}>FPS deathmatch. Eliminate your opponent to win money.</Text>
                         <Space size="m" />
 
-                        <View style={styles.betSelector}>
-                            <Text style={styles.betLabel}>BET AMOUNT</Text>
-                            <View style={styles.betOptions}>
-                                {Constants.BET_AMOUNTS.map((amount) => (
-                                    <button
-                                        key={amount}
-                                        style={{
-                                            ...styles.betButton,
-                                            backgroundColor: selectedWastelandBet === amount ? '#39ff14' : '#222',
-                                            color: selectedWastelandBet === amount ? '#000' : '#fff',
-                                            borderColor: selectedWastelandBet === amount ? '#39ff14' : '#333',
-                                        }}
-                                        onClick={() => setSelectedWastelandBet(amount)}
-                                        disabled={isWastelandMatchmaking}
-                                    >
-                                        ${amount}
-                                    </button>
-                                ))}
-                            </View>
-                        </View>
-                        <Space size="m" />
-
-                        <button className="btn-3d" onClick={handleWastelandMatchmaking}>
-                            <span className="btn-3d-top">
-                                {isWastelandMatchmaking ? 'CANCEL' : `FIND $${selectedWastelandBet} MATCH`}
-                            </span>
-                        </button>
-
-                        {wastelandMatchmakingStatus && (
-                            <>
-                                <Space size="s" />
-                                <Text style={styles.statusText}>{wastelandMatchmakingStatus}</Text>
-                            </>
-                        )}
-
-                        <Space size="xs" />
-
-                        <button className="btn-3d btn-3d-secondary" onClick={() => navigate?.('/three-fps')}>
-                            <span className="btn-3d-top btn-3d-top-secondary">PLAY LOCAL</span>
-                        </button>
+                        <Text style={styles.comingSoonLarge}>COMING SOON...</Text>
                     </View>
                 </View>
             </View>
@@ -888,31 +849,95 @@ const depositStyles: { [key: string]: React.CSSProperties } = {
 
 type PaymentMethod = 'paypal' | 'solana' | 'ethereum' | 'bank';
 
-const paymentMethods: { id: PaymentMethod; label: string; placeholder: string; description: string }[] = [
-    { id: 'paypal', label: 'PayPal', placeholder: 'Enter your PayPal email', description: 'Funds sent within 24 hours' },
-    { id: 'solana', label: 'Solana (USDC)', placeholder: 'Enter your Solana wallet address', description: 'Fast & low fees' },
-    { id: 'ethereum', label: 'Ethereum (USDC)', placeholder: 'Enter your Ethereum wallet address', description: 'ERC-20 USDC' },
-    { id: 'bank', label: 'Bank Transfer', placeholder: 'Enter your IBAN', description: '2-5 business days' },
+const WITHDRAWAL_FEE_PERCENT = 10; // 10% withdrawal fee
+
+interface PaymentMethodConfig {
+    id: PaymentMethod;
+    label: string;
+    fields: { name: string; placeholder: string; type?: string }[];
+    description: string;
+}
+
+const paymentMethods: PaymentMethodConfig[] = [
+    {
+        id: 'paypal',
+        label: 'PayPal',
+        fields: [{ name: 'email', placeholder: 'PayPal email address', type: 'email' }],
+        description: 'Processed within 24-48 hours'
+    },
+    {
+        id: 'solana',
+        label: 'Solana (USDC)',
+        fields: [{ name: 'wallet', placeholder: 'Solana wallet address (e.g., 7xKXtg2C...)' }],
+        description: 'USDC on Solana network'
+    },
+    {
+        id: 'ethereum',
+        label: 'Ethereum (USDC)',
+        fields: [{ name: 'wallet', placeholder: 'Ethereum wallet address (0x...)' }],
+        description: 'USDC on Ethereum (ERC-20)'
+    },
+    {
+        id: 'bank',
+        label: 'Bank Transfer',
+        fields: [
+            { name: 'accountHolder', placeholder: 'Full name on account' },
+            { name: 'bankName', placeholder: 'Bank name' },
+            { name: 'accountNumber', placeholder: 'Account/IBAN/PIX key' },
+            { name: 'routingSwift', placeholder: 'Routing/SWIFT/Agency (if applicable)' }
+        ],
+        description: '3-7 business days'
+    },
 ];
 
 function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClose: () => void; onSuccess: () => void }) {
     const [amount, setAmount] = useState<number>(balance);
     const [method, setMethod] = useState<PaymentMethod>('paypal');
-    const [paymentDetails, setPaymentDetails] = useState('');
+    const [paymentDetails, setPaymentDetails] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
 
     const selectedMethod = paymentMethods.find(m => m.id === method)!;
 
+    // Calculate fees
+    const fee = Math.round((amount * WITHDRAWAL_FEE_PERCENT) / 100);
+    const youReceive = amount - fee;
+
     async function handleWithdraw() {
         if (amount <= 0 || amount > balance) {
             setError('Invalid amount');
             return;
         }
-        if (!paymentDetails.trim()) {
-            setError('Please enter your payment details');
+
+        // Validate all required fields are filled
+        const missingFields = selectedMethod.fields.filter(field => !paymentDetails[field.name]?.trim());
+        if (missingFields.length > 0) {
+            setError(`Please fill in: ${missingFields.map(f => f.placeholder).join(', ')}`);
             return;
+        }
+
+        // Validate wallet addresses
+        if (method === 'ethereum') {
+            const ethAddress = paymentDetails['wallet'];
+            if (!ethAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+                setError('Invalid Ethereum address. Must start with 0x and be 42 characters');
+                return;
+            }
+        }
+        if (method === 'solana') {
+            const solAddress = paymentDetails['wallet'];
+            if (!solAddress.match(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)) {
+                setError('Invalid Solana address');
+                return;
+            }
+        }
+        if (method === 'paypal') {
+            const email = paymentDetails['email'];
+            if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+                setError('Invalid email address');
+                return;
+            }
         }
 
         setLoading(true);
@@ -958,7 +983,7 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
                 return;
             }
 
-            // Update balance
+            // Deduct full withdrawal amount (requested amount) from balance
             const { error: balanceError } = await supabase
                 .from('balances')
                 .update({ balance: currentBalance.balance - amount })
@@ -971,11 +996,14 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
                 return;
             }
 
-            // Create withdrawal request
+            // Create withdrawal request with payout amount (after 10% fee)
+            const payoutAmount = youReceive;
+            const paymentDetailsString = JSON.stringify({ method, ...paymentDetails });
+
             const { error: withdrawError } = await supabase.from('withdrawal_requests').insert({
                 user_id: userId,
-                amount,
-                payment_method: `${method}:${paymentDetails}`,
+                amount: payoutAmount, // Amount user will receive (after fee)
+                payment_method: paymentDetailsString,
                 status: 'pending',
             });
 
@@ -984,7 +1012,7 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
                 // Don't fail - balance already deducted, just log it
             }
 
-            // Record transaction
+            // Record transaction (negative full amount deducted from balance)
             const { error: txError } = await supabase.from('transactions').insert({
                 user_id: userId,
                 amount: -amount,
@@ -1009,8 +1037,12 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
                 <div style={depositStyles.modal} onClick={(e) => e.stopPropagation()}>
                     <Text style={depositStyles.title}>Withdrawal Requested</Text>
                     <Space size="m" />
-                    <Text style={{ color: '#22c55e', textAlign: 'center' }}>
-                        Your withdrawal of ${amount} has been submitted.
+                    <Text style={{ color: '#22c55e', textAlign: 'center', fontWeight: 'bold' }}>
+                        You will receive ${youReceive}
+                    </Text>
+                    <Space size="xs" />
+                    <Text style={{ color: '#888', textAlign: 'center', fontSize: 12 }}>
+                        (${amount} withdrawal - ${fee} fee = ${youReceive})
                     </Text>
                     <Space size="s" />
                     <Text style={{ color: '#888', textAlign: 'center', fontSize: 14 }}>
@@ -1031,7 +1063,7 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
                 <Text style={depositStyles.title}>Withdraw Credits</Text>
                 <Space size="m" />
 
-                <Text style={depositStyles.label}>Amount (max: ${balance})</Text>
+                <Text style={depositStyles.label}>Withdrawal Amount (max: ${balance})</Text>
                 <Space size="s" />
                 <input
                     type="number"
@@ -1041,6 +1073,26 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
                     onChange={(e) => setAmount(Number(e.target.value))}
                     style={depositStyles.input}
                 />
+
+                {amount > 0 && (
+                    <>
+                        <Space size="s" />
+                        <View style={withdrawStyles.feeBreakdown}>
+                            <View style={withdrawStyles.feeRow}>
+                                <Text style={withdrawStyles.feeLabel}>Withdrawal amount:</Text>
+                                <Text style={withdrawStyles.feeValue}>${amount}</Text>
+                            </View>
+                            <View style={withdrawStyles.feeRow}>
+                                <Text style={withdrawStyles.feeLabel}>Platform fee ({WITHDRAWAL_FEE_PERCENT}%):</Text>
+                                <Text style={withdrawStyles.feeValue}>-${fee}</Text>
+                            </View>
+                            <View style={{ ...withdrawStyles.feeRow, borderTop: '1px solid #333', paddingTop: 8, marginTop: 8 }}>
+                                <Text style={{ ...withdrawStyles.feeLabel, fontWeight: 'bold', color: '#39ff14' }}>You receive:</Text>
+                                <Text style={{ ...withdrawStyles.feeValue, fontWeight: 'bold', color: '#39ff14' }}>${youReceive}</Text>
+                            </View>
+                        </View>
+                    </>
+                )}
 
                 <Space size="m" />
 
@@ -1058,7 +1110,7 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
                             }}
                             onClick={() => {
                                 setMethod(m.id);
-                                setPaymentDetails('');
+                                setPaymentDetails({});
                             }}
                         >
                             {m.label}
@@ -1070,14 +1122,18 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
 
                 <Text style={depositStyles.label}>{selectedMethod.label} Details</Text>
                 <Space size="s" />
-                <input
-                    type="text"
-                    placeholder={selectedMethod.placeholder}
-                    value={paymentDetails}
-                    onChange={(e) => setPaymentDetails(e.target.value)}
-                    style={depositStyles.input}
-                />
-                <Space size="xs" />
+                {selectedMethod.fields.map((field) => (
+                    <React.Fragment key={field.name}>
+                        <input
+                            type={field.type || 'text'}
+                            placeholder={field.placeholder}
+                            value={paymentDetails[field.name] || ''}
+                            onChange={(e) => setPaymentDetails({ ...paymentDetails, [field.name]: e.target.value })}
+                            style={depositStyles.input}
+                        />
+                        <Space size="xs" />
+                    </React.Fragment>
+                ))}
                 <Text style={{ color: '#666', fontSize: 12 }}>{selectedMethod.description}</Text>
 
                 {error && (
@@ -1089,9 +1145,9 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
 
                 <Space size="m" />
 
-                <button className="btn-3d" onClick={handleWithdraw} disabled={loading || amount < 1}>
+                <button className="btn-3d" onClick={handleWithdraw} disabled={loading || amount < 1 || youReceive < 1}>
                     <span className="btn-3d-top">
-                        {loading ? 'Processing...' : `WITHDRAW $${amount}`}
+                        {loading ? 'Processing...' : `WITHDRAW $${amount} (Receive $${youReceive})`}
                     </span>
                 </button>
             </div>
@@ -1113,6 +1169,27 @@ const withdrawStyles: { [key: string]: React.CSSProperties } = {
         fontWeight: 'bold',
         fontSize: 13,
         textAlign: 'center',
+    },
+    feeBreakdown: {
+        backgroundColor: '#1a1a1a',
+        border: '1px solid #333',
+        borderRadius: 8,
+        padding: isMobile ? 12 : 16,
+    },
+    feeRow: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    feeLabel: {
+        fontSize: isMobile ? 13 : 14,
+        color: '#888',
+    },
+    feeValue: {
+        fontSize: isMobile ? 13 : 14,
+        color: '#fff',
+        fontWeight: 'bold',
     },
 };
 
@@ -1339,6 +1416,14 @@ const styles: { [key: string]: React.CSSProperties } = {
         fontFamily: '"Zen Dots", sans-serif',
         color: '#fff',
         letterSpacing: 2,
+    },
+    comingSoonLarge: {
+        fontSize: isMobile ? 20 : 28,
+        fontFamily: '"Zen Dots", sans-serif',
+        fontWeight: 'bold',
+        color: '#fff',
+        letterSpacing: 2,
+        textAlign: 'center',
     },
     footer: {
         fontSize: isMobile ? 12 : 14,

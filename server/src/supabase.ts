@@ -84,7 +84,9 @@ export async function logGameResult(
     amount: number,
     startedAt: Date
 ): Promise<boolean> {
-    const { error } = await supabase.from('game_history').insert({
+    console.log(`[logGameResult] Inserting: winner=${winnerId}, loser=${loserId}, amount=${amount}, started=${startedAt.toISOString()}`);
+
+    const { data, error } = await supabase.from('game_history').insert({
         winner_id: winnerId,
         loser_id: loserId,
         amount,
@@ -93,9 +95,10 @@ export async function logGameResult(
     });
 
     if (error) {
-        console.error('Error logging game result:', error);
+        console.error('[logGameResult] Error logging game result:', JSON.stringify(error, null, 2));
         return false;
     }
 
+    console.log('[logGameResult] Successfully inserted:', data);
     return true;
 }

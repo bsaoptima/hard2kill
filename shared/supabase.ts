@@ -186,19 +186,28 @@ export async function logGameResult(
     winnerId: string,
     loserId: string,
     amount: number,
-    duration: number,
-    gameType: string = 'gladiatorz'
-): Promise<void> {
-    try {
-        await supabase.from('game_history').insert({
-            winner_id: winnerId,
-            loser_id: loserId,
-            amount,
-            duration,
-            game_type: gameType,
-            ended_at: new Date().toISOString(),
-        });
-    } catch (error) {
-        console.error('Error logging game result:', error);
+    startedAt: Date
+): Promise<boolean> {
+    if (!supabaseAdmin) {
+        console.error('[logGameResult] Cannot log game result: admin client not available');
+        return false;
     }
+
+    console.log(`[logGameResult] Inserting: winner=${winnerId}, loser=${loserId}, amount=${amount}`);
+
+    const { data, error } = await supabaseAdmin.from('game_history').insert({
+        winner_id: winnerId,
+        loser_id: loserId,
+        amount,
+        started_at: startedAt.toISOString(),
+        ended_at: new Date().toISOString(),
+    });
+
+    if (error) {
+        console.error('[logGameResult] Error logging game result:', JSON.stringify(error, null, 2));
+        return false;
+    }
+
+    console.log('[logGameResult] Successfully inserted game history');
+    return true;
 }

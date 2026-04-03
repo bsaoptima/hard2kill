@@ -162,11 +162,11 @@ export class GameState extends Schema {
         });
     };
 
-    private handlePlayerWin = (winner: Player) => {
+    private handlePlayerWin = async (winner: Player) => {
         // Credit winner's Supabase balance with their pot
         if (winner.odinsId && winner.pot > 0) {
             console.log(`[WIN] Crediting ${winner.name} (${winner.odinsId}) with ${winner.pot}`);
-            creditBalance(winner.odinsId, winner.pot);
+            await creditBalance(winner.odinsId, winner.pot);
         }
 
         // Find the loser (the other player who is not alive)
@@ -178,16 +178,28 @@ export class GameState extends Schema {
         });
 
         // Log game result
-        if (winner.odinsId && loser?.odinsId && this.gameStartedAt) {
+        if (loser && this.gameStartedAt) {
             const amount = this.game.betAmount * 2; // Total pot (both players' bets)
-            const duration = Date.now() - this.gameStartedAt.getTime(); // Duration in milliseconds
-            logGameResult(
-                winner.odinsId,
-                loser.odinsId,
-                amount,
-                duration
-            );
-            console.log(`[GAME] Logged: ${winner.name} beat ${loser.name} for $${amount}`);
+
+            // Use BOT_USER_ID for bots (players without odinsId)
+            const winnerId = winner.odinsId || Constants.BOT_USER_ID;
+            const loserId = loser.odinsId || Constants.BOT_USER_ID;
+
+            // Only log if at least one player is human (not both bots)
+            if (winner.odinsId || loser.odinsId) {
+                console.log(`[GAME] Attempting to log: winner=${winnerId}, loser=${loserId}, amount=${amount}`);
+                const success = await logGameResult(
+                    winnerId,
+                    loserId,
+                    amount,
+                    this.gameStartedAt
+                );
+                if (success) {
+                    console.log(`[GAME] Successfully logged: ${winner.name} beat ${loser.name} for $${amount}`);
+                } else {
+                    console.error(`[GAME] Failed to log game result`);
+                }
+            }
         }
     };
 
