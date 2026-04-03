@@ -166,7 +166,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
 
     async function handleMatchmaking() {
         if (!userId) {
-            showAuth();
+            showAuth('Login to play');
             return;
         }
 
@@ -241,7 +241,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
 
     async function handleWastelandMatchmaking() {
         if (!userId) {
-            showAuth();
+            showAuth('Login to play');
             return;
         }
 
@@ -315,7 +315,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
 
     async function handleGladiatorMatchmaking() {
         if (!userId) {
-            showAuth();
+            showAuth('Login to play');
             return;
         }
 
@@ -565,6 +565,17 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
             <Text style={styles.footer}>
                 100% skill-based. Your wins are your earnings.
             </Text>
+
+            {/* Floating Telegram button */}
+            <a
+                href="https://t.me/bsaoptima"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={styles.telegramButton}
+            >
+                <span style={styles.telegramIcon}>💬</span>
+                <span style={styles.telegramText}>Chat with Founder</span>
+            </a>
 
             {showLeaderboard && (
                 <LeaderboardModal onClose={() => setShowLeaderboard(false)} />
@@ -1448,6 +1459,32 @@ const styles: { [key: string]: React.CSSProperties } = {
         color: '#444',
         textAlign: 'center',
         padding: isMobile ? '0 16px' : 0,
+    },
+    telegramButton: {
+        position: 'fixed',
+        bottom: isMobile ? 20 : 32,
+        right: isMobile ? 20 : 32,
+        backgroundColor: '#0088cc',
+        color: '#fff',
+        padding: isMobile ? '12px 16px' : '14px 20px',
+        borderRadius: 50,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        textDecoration: 'none',
+        boxShadow: '0 4px 12px rgba(0, 136, 204, 0.4)',
+        transition: 'transform 0.2s, box-shadow 0.2s',
+        zIndex: 999,
+        fontWeight: 'bold',
+        fontSize: isMobile ? 13 : 14,
+        cursor: 'pointer',
+        animation: 'telegramPulse 2s infinite',
+    },
+    telegramIcon: {
+        fontSize: isMobile ? 18 : 20,
+    },
+    telegramText: {
+        display: isMobile ? 'none' : 'block',
     },
     faqSection: {
         width: '100%',

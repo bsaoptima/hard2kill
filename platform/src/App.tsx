@@ -10,7 +10,7 @@ import { supabase } from '@hard2kill/shared';
 
 interface AuthContextType {
     userId: string | null;
-    showAuth: () => void;
+    showAuth: (message?: string) => void;
 }
 
 export const AuthContext = createContext<AuthContextType>({
@@ -23,6 +23,7 @@ export const useAuth = () => useContext(AuthContext);
 export default function App(): React.ReactElement {
     const [userId, setUserId] = useState<string | null>(null);
     const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+    const [authMessage, setAuthMessage] = useState<string | undefined>(undefined);
 
     useEffect(() => {
         // Function to ensure balance record exists
@@ -65,13 +66,19 @@ export default function App(): React.ReactElement {
         <AuthContext.Provider
             value={{
                 userId,
-                showAuth: () => setShowAuthModal(true),
+                showAuth: (message?: string) => {
+                    setAuthMessage(message);
+                    setShowAuthModal(true);
+                },
             }}
         >
             <LocationProvider>
                 <RoutedApp />
             </LocationProvider>
-            {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+            {showAuthModal && <AuthModal message={authMessage} onClose={() => {
+                setShowAuthModal(false);
+                setAuthMessage(undefined);
+            }} />}
         </AuthContext.Provider>
     );
 }
@@ -89,7 +96,7 @@ function RoutedApp(): React.ReactElement {
     );
 }
 
-function AuthModal({ onClose }: { onClose: () => void }): React.ReactElement {
+function AuthModal({ message, onClose }: { message?: string; onClose: () => void }): React.ReactElement {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [isLogin, setIsLogin] = useState(true);
@@ -120,7 +127,9 @@ function AuthModal({ onClose }: { onClose: () => void }): React.ReactElement {
     return (
         <div style={styles.overlay} onClick={onClose}>
             <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-                <h2 style={styles.title}>{isLogin ? 'Login' : 'Sign Up'}</h2>
+                <h2 style={styles.title}>
+                    {message ? (isLogin ? 'Login to Play' : 'Sign Up to Play') : (isLogin ? 'Login' : 'Sign Up')}
+                </h2>
                 <input
                     style={styles.input}
                     placeholder="Email"

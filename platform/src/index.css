@@ -110,3 +110,19 @@ a:hover {
         background-color: #111;
     }
 }
+
+/* Telegram button pulse animation */
+@keyframes telegramPulse {
+    0%, 100% {
+        box-shadow: 0 4px 12px rgba(0, 136, 204, 0.4);
+    }
+    50% {
+        box-shadow: 0 4px 20px rgba(0, 136, 204, 0.6);
+    }
+}
+
+/* Telegram button hover effect */
+a[style*="telegramButton"]:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 16px rgba(0, 136, 204, 0.5) !important;
+}
