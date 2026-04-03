@@ -38,6 +38,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
     const [gladiatorMatchmakingStatus, setGladiatorMatchmakingStatus] = useState('');
     const [selectedGladiatorBet, setSelectedGladiatorBet] = useState(Constants.DEFAULT_BET_AMOUNT);
     const [livePlayerCount, setLivePlayerCount] = useState(16);
+    const [playerCountFlash, setPlayerCountFlash] = useState(false);
     const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
     // Get user and balance on mount and auth changes
@@ -119,6 +120,13 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                 const changes = [-2, 0, 2]; // Only even changes
                 const change = changes[Math.floor(Math.random() * changes.length)];
                 const newCount = prev + change;
+
+                // Only trigger flash if count actually changed
+                if (newCount !== prev) {
+                    setPlayerCountFlash(true);
+                    setTimeout(() => setPlayerCountFlash(false), 600); // Flash duration
+                }
+
                 return Math.max(10, Math.min(30, newCount)); // Keep between 10-30
             });
         };
@@ -478,8 +486,13 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
 
                         <Space size="xs" />
 
-                        <View style={styles.livePlayersContainer}>
-                            <Text style={styles.livePlayersText}>🟢 {livePlayerCount} players currently online</Text>
+                        <View style={{
+                            ...styles.livePlayersContainer,
+                            animation: playerCountFlash ? 'playerCountFlash 0.6s ease-out' : 'none',
+                        }}>
+                            <Text style={styles.livePlayersText}>
+                                <span style={styles.greenDot}>🟢</span> {livePlayerCount} players currently online
+                            </Text>
                         </View>
                     </View>
                 </View>
@@ -523,7 +536,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                         },
                         {
                             question: "What fees do you charge?",
-                            answer: "We take a 5% platform fee on winnings. Deposits are free. Withdrawal fees depend on your chosen method: PayPal (2%), Crypto (network fees only), Bank Transfer ($2 flat fee)."
+                            answer: "Deposits are completely free. When you withdraw, we charge a 10% platform fee. For example, if you withdraw $100, you'll receive $90. This fee covers payment processing and platform operations."
                         },
                         {
                             question: "Is my money safe?",
@@ -1405,11 +1418,16 @@ const styles: { [key: string]: React.CSSProperties } = {
         border: '1px solid #333',
         borderRadius: 8,
         alignSelf: 'stretch',
+        transition: 'background-color 0.3s ease, box-shadow 0.3s ease',
     },
     livePlayersText: {
         color: '#fff',
         fontSize: isMobile ? 13 : 15,
         fontWeight: 'bold',
+    },
+    greenDot: {
+        display: 'inline-block',
+        filter: 'drop-shadow(0 0 3px rgba(57, 255, 20, 0.4))',
     },
     comingSoon: {
         fontSize: isMobile ? 14 : 18,

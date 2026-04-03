@@ -94,3 +94,19 @@ a:hover {
         opacity: 1;
     }
 }
+
+/* Player count flash animation */
+@keyframes playerCountFlash {
+    0% {
+        box-shadow: 0 0 0 0 rgba(57, 255, 20, 0.7);
+        background-color: #111;
+    }
+    50% {
+        box-shadow: 0 0 15px 5px rgba(57, 255, 20, 0.5);
+        background-color: rgba(57, 255, 20, 0.15);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(57, 255, 20, 0);
+        background-color: #111;
+    }
+}
