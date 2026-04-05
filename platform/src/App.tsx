@@ -26,8 +26,10 @@ export default function App(): React.ReactElement {
     const [authMessage, setAuthMessage] = useState<string | undefined>(undefined);
 
     useEffect(() => {
+        const WELCOME_BONUS = 10; // $10 welcome bonus for new users
+
         // Function to ensure balance record exists
-        const ensureBalanceRecord = async (userId: string) => {
+        const ensureBalanceRecord = async (userId: string, isNewUser: boolean = false) => {
             const { data, error } = await supabase
                 .from('balances')
                 .select('id')
@@ -40,8 +42,20 @@ export default function App(): React.ReactElement {
             }
 
             if (!data) {
-                console.log('Creating balance record for user:', userId);
-                await supabase.from('balances').insert({ id: userId, balance: 0 });
+                const initialBalance = isNewUser ? WELCOME_BONUS : 0;
+                console.log(`Creating balance record for user: ${userId} with $${initialBalance}`);
+
+                await supabase.from('balances').insert({ id: userId, balance: initialBalance });
+
+                // Log welcome bonus transaction for new users
+                if (isNewUser) {
+                    await supabase.from('transactions').insert({
+                        user_id: userId,
+                        amount: WELCOME_BONUS,
+                        type: 'welcome_bonus',
+                    });
+                    console.log(`Welcome bonus of $${WELCOME_BONUS} credited to new user: ${userId}`);
+                }
             }
         };
 
@@ -52,8 +66,9 @@ export default function App(): React.ReactElement {
                 setUserId(session.user.id);
                 setShowAuthModal(false);
 
-                // Ensure balance record exists for all auth events
-                await ensureBalanceRecord(session.user.id);
+                // Give welcome bonus only for new sign-ups
+                const isNewUser = event === 'SIGNED_UP';
+                await ensureBalanceRecord(session.user.id, isNewUser);
             } else {
                 setUserId(null);
             }
@@ -102,10 +117,12 @@ function AuthModal({ message, onClose }: { message?: string; onClose: () => void
     const [isLogin, setIsLogin] = useState(true);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
 
     async function handleSubmit() {
         setLoading(true);
         setError('');
+        setSuccess('');
 
         if (isLogin) {
             const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -117,7 +134,7 @@ function AuthModal({ message, onClose }: { message?: string; onClose: () => void
             if (error) {
                 setError(error.message);
             } else {
-                setError('Check your email to confirm your account');
+                setSuccess('🎉 Account created! Check your email to confirm and claim your $10 welcome bonus!');
             }
         }
 
@@ -144,6 +161,7 @@ function AuthModal({ message, onClose }: { message?: string; onClose: () => void
                     onChange={(e) => setPassword(e.target.value)}
                 />
                 {error && <p style={styles.error}>{error}</p>}
+                {success && <p style={styles.success}>{success}</p>}
                 <button style={styles.button} onClick={handleSubmit} disabled={loading}>
                     {loading ? 'Loading...' : isLogin ? 'Login' : 'Sign Up'}
                 </button>
@@ -204,6 +222,12 @@ const styles: { [key: string]: React.CSSProperties } = {
         color: '#ff4444',
         margin: 0,
         fontSize: 14,
+    },
+    success: {
+        color: '#39ff14',
+        margin: 0,
+        fontSize: 14,
+        textAlign: 'center',
     },
     toggle: {
         color: '#888',

@@ -397,10 +397,17 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                 backgroundColor: '#000',
                 flexDirection: 'column',
                 padding: 32,
-                paddingTop: isMobile ? 80 : 100,
+                paddingTop: isMobile ? 120 : 140,
                 position: 'relative',
             }}
         >
+            {/* Launch promo banner */}
+            <View style={styles.promoBanner}>
+                <Text style={styles.promoBannerText}>
+                  LAUNCH PROMO: GET 10$ WHEN YOU SIGN UP! 
+                </Text>
+            </View>
+
             <View style={styles.navbar}>
                 <Text style={styles.navbarTitle}>HARD<span style={{ color: '#39ff14' }}>2</span>KILL</Text>
 
@@ -1218,9 +1225,28 @@ const withdrawStyles: { [key: string]: React.CSSProperties } = {
 };
 
 const styles: { [key: string]: React.CSSProperties } = {
-    navbar: {
+    promoBanner: {
         position: 'fixed',
         top: 0,
+        left: 0,
+        right: 0,
+        height: isMobile ? 40 : 50,
+        backgroundColor: '#39ff14',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1001,
+    },
+    promoBannerText: {
+        fontSize: isMobile ? 13 : 16,
+        fontWeight: 'bold',
+        color: '#000',
+        textAlign: 'center',
+        padding: '0 16px',
+    },
+    navbar: {
+        position: 'fixed',
+        top: isMobile ? 40 : 50,
         left: 0,
         right: 0,
         height: isMobile ? 60 : 80,
