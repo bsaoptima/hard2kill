@@ -577,7 +577,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                         },
                         {
                             question: "What fees do you charge?",
-                            answer: "Deposits are completely free. When you withdraw, we charge a 10% platform fee. For example, if you withdraw $100, you'll receive $90. This fee covers payment processing and platform operations."
+                            answer: "Deposits are completely free. When you withdraw, we charge a 10% platform fee plus we deduct your $10 welcome bonus. For example, if you withdraw $100, you'll receive $80 ($100 - $10 fee - $10 bonus = $80). This means you can only cash out actual winnings, not the free starting balance."
                         },
                         {
                             question: "Is my money safe?",
@@ -915,6 +915,7 @@ const depositStyles: { [key: string]: React.CSSProperties } = {
 type PaymentMethod = 'paypal' | 'solana' | 'ethereum' | 'bank';
 
 const WITHDRAWAL_FEE_PERCENT = 10; // 10% withdrawal fee
+const WELCOME_BONUS_DEDUCTION = 10; // Deduct welcome bonus on first withdrawal
 
 interface PaymentMethodConfig {
     id: PaymentMethod;
@@ -965,9 +966,10 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
 
     const selectedMethod = paymentMethods.find(m => m.id === method)!;
 
-    // Calculate fees
+    // Calculate fees and deductions
     const fee = Math.round((amount * WITHDRAWAL_FEE_PERCENT) / 100);
-    const youReceive = amount - fee;
+    const totalDeductions = fee + WELCOME_BONUS_DEDUCTION;
+    const youReceive = amount - totalDeductions;
 
     async function handleWithdraw() {
         if (amount <= 0 || amount > balance) {
@@ -1107,7 +1109,7 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
                     </Text>
                     <Space size="xs" />
                     <Text style={{ color: '#888', textAlign: 'center', fontSize: 12 }}>
-                        (${amount} withdrawal - ${fee} fee = ${youReceive})
+                        (${amount} - ${fee} fee - ${WELCOME_BONUS_DEDUCTION} bonus = ${youReceive})
                     </Text>
                     <Space size="s" />
                     <Text style={{ color: '#888', textAlign: 'center', fontSize: 14 }}>
@@ -1151,9 +1153,13 @@ function WithdrawModal({ balance, onClose, onSuccess }: { balance: number; onClo
                                 <Text style={withdrawStyles.feeLabel}>Platform fee ({WITHDRAWAL_FEE_PERCENT}%):</Text>
                                 <Text style={withdrawStyles.feeValue}>-${fee}</Text>
                             </View>
+                            <View style={withdrawStyles.feeRow}>
+                                <Text style={withdrawStyles.feeLabel}>Welcome bonus deduction:</Text>
+                                <Text style={withdrawStyles.feeValue}>-${WELCOME_BONUS_DEDUCTION}</Text>
+                            </View>
                             <View style={{ ...withdrawStyles.feeRow, borderTop: '1px solid #333', paddingTop: 8, marginTop: 8 }}>
-                                <Text style={{ ...withdrawStyles.feeLabel, fontWeight: 'bold', color: '#39ff14' }}>You receive:</Text>
-                                <Text style={{ ...withdrawStyles.feeValue, fontWeight: 'bold', color: '#39ff14' }}>${youReceive}</Text>
+                                <Text style={{ ...withdrawStyles.feeLabel, fontWeight: 'bold', color: youReceive > 0 ? '#39ff14' : '#ff4444' }}>You receive:</Text>
+                                <Text style={{ ...withdrawStyles.feeValue, fontWeight: 'bold', color: youReceive > 0 ? '#39ff14' : '#ff4444' }}>${youReceive}</Text>
                             </View>
                         </View>
                     </>
