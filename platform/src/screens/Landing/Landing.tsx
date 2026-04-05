@@ -58,14 +58,14 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                 } else if (balanceData) {
                     setBalance(balanceData.balance);
                 } else {
-                    // No balance record exists, create one
+                    // No balance record exists, create one with default ($10 welcome bonus)
                     console.log('Creating balance record for user');
                     const { error: insertError } = await supabase
                         .from('balances')
-                        .insert({ id: uid, balance: 0 });
+                        .insert({ id: uid });
 
                     if (!insertError) {
-                        setBalance(0);
+                        setBalance(10); // Default welcome bonus
                     }
                 }
 

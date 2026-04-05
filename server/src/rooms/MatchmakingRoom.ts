@@ -59,8 +59,7 @@ export class MatchmakingRoom extends Room {
         // Look for another player with same bet amount (excluding the new player)
         const opponent = this.waitingPlayers.find(
             p => p.client.sessionId !== newPlayer.client.sessionId &&
-                 p.betAmount === newPlayer.betAmount &&
-                 !p.botTimer // Only match with players who haven't been matched yet
+                 p.betAmount === newPlayer.betAmount
         );
 
         if (opponent) {

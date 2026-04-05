@@ -42,10 +42,10 @@ export default function App(): React.ReactElement {
             }
 
             if (!data) {
-                const initialBalance = isNewUser ? WELCOME_BONUS : 0;
-                console.log(`Creating balance record for user: ${userId} with $${initialBalance}`);
+                // Database default is $10, no need to specify balance
+                console.log(`Creating balance record for user: ${userId} (default $10 welcome bonus)`);
 
-                await supabase.from('balances').insert({ id: userId, balance: initialBalance });
+                await supabase.from('balances').insert({ id: userId });
 
                 // Log welcome bonus transaction for new users
                 if (isNewUser) {
@@ -54,7 +54,7 @@ export default function App(): React.ReactElement {
                         amount: WELCOME_BONUS,
                         type: 'welcome_bonus',
                     });
-                    console.log(`Welcome bonus of $${WELCOME_BONUS} credited to new user: ${userId}`);
+                    console.log(`Welcome bonus transaction logged for new user: ${userId}`);
                 }
             }
         };
