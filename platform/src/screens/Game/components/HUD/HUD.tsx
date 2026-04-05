@@ -29,6 +29,9 @@ export interface HUDProps {
     potLostKiller?: string | null;
     gameResult?: GameResultType;
     gameResultWinner?: string;
+    onPlayAgain?: () => void;
+    onGoHome?: () => void;
+    isRematchQueuing?: boolean;
 }
 
 /**
@@ -62,6 +65,9 @@ export const HUD = React.memo((props: HUDProps): React.ReactElement => {
         potLostKiller,
         gameResult,
         gameResultWinner,
+        onPlayAgain,
+        onGoHome,
+        isRematchQueuing,
     } = props;
     const [leaderboardOpened, setLeaderboardOpened] = React.useState(false);
     const [menuOpened, setMenuOpened] = React.useState(false);
@@ -135,6 +141,9 @@ export const HUD = React.memo((props: HUDProps): React.ReactElement => {
                 winnerName={gameResultWinner}
                 amountWon={killRewardAmount}
                 amountLost={potLostAmount}
+                onPlayAgain={onPlayAgain}
+                onGoHome={onGoHome}
+                isQueuing={isRematchQueuing}
             />
 
             {/* Leaderboard */}

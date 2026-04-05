@@ -276,6 +276,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
 
             wastelandRoomRef.current = await wastelandClientRef.current.joinOrCreate('wasteland-matchmaking', {
                 playerName,
+                odinsId: userId,
                 betAmount: selectedWastelandBet,
             });
 
@@ -516,7 +517,40 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                         <Text style={styles.gameDescription}>FPS deathmatch. Eliminate your opponent to win money.</Text>
                         <Space size="m" />
 
-                        <Text style={styles.comingSoonLarge}>COMING SOON...</Text>
+                        <View style={styles.betSelector}>
+                            <Text style={styles.betLabel}>BET AMOUNT</Text>
+                            <View style={styles.betOptions}>
+                                {Constants.BET_AMOUNTS.map((amount) => (
+                                    <button
+                                        key={amount}
+                                        style={{
+                                            ...styles.betButton,
+                                            backgroundColor: selectedWastelandBet === amount ? '#39ff14' : '#222',
+                                            color: selectedWastelandBet === amount ? '#000' : '#fff',
+                                            borderColor: selectedWastelandBet === amount ? '#39ff14' : '#333',
+                                        }}
+                                        onClick={() => setSelectedWastelandBet(amount)}
+                                        disabled={isWastelandMatchmaking}
+                                    >
+                                        ${amount}
+                                    </button>
+                                ))}
+                            </View>
+                        </View>
+                        <Space size="m" />
+
+                        <button className="btn-3d" onClick={handleWastelandMatchmaking}>
+                            <span className="btn-3d-top">
+                                {isWastelandMatchmaking ? 'CANCEL' : `FIND $${selectedWastelandBet} MATCH`}
+                            </span>
+                        </button>
+
+                        {wastelandMatchmakingStatus && (
+                            <>
+                                <Space size="s" />
+                                <Text style={styles.statusText}>{wastelandMatchmakingStatus}</Text>
+                            </>
+                        )}
                     </View>
                 </View>
             </View>

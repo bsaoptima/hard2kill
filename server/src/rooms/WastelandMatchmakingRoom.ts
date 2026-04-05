@@ -1,11 +1,16 @@
-import { Client, Room, matchMaker } from 'colyseus';
+import { Client, Room } from 'colyseus';
 import { Constants } from '@hard2kill/gladiatorz-common';
 
 interface WaitingPlayer {
     client: Client;
     playerName: string;
+    odinsId: string;
     betAmount: number;
+    joinedAt: number;
+    botTimer?: NodeJS.Timeout;
 }
+
+const BOT_MATCH_DELAY = 5000; // 5 seconds before matching with bot
 
 export class WastelandMatchmakingRoom extends Room {
     private waitingPlayers: WaitingPlayer[] = [];
@@ -16,81 +21,125 @@ export class WastelandMatchmakingRoom extends Room {
         this.autoDispose = false;
     }
 
-    onJoin(client: Client, options: { playerName: string; betAmount?: number }) {
+    onJoin(client: Client, options: { playerName: string; odinsId: string; betAmount?: number }) {
         const betAmount = options.betAmount || Constants.DEFAULT_BET_AMOUNT;
         console.log(`[Wasteland Matchmaking] Player joined queue: ${options.playerName} (bet: $${betAmount})`);
 
-        this.waitingPlayers.push({
+        const player: WaitingPlayer = {
             client,
             playerName: options.playerName || 'Anonymous',
+            odinsId: options.odinsId || '',
             betAmount,
-        });
+            joinedAt: Date.now(),
+        };
+
+        this.waitingPlayers.push(player);
 
         // Count players waiting with same bet amount
         const sameAmountCount = this.waitingPlayers.filter(p => p.betAmount === betAmount).length;
         client.send('matchmaking:status', { status: 'waiting', position: sameAmountCount });
 
-        this.tryMatch();
+        // Try to match with another player first
+        this.tryMatchPlayers(player);
     }
 
     onLeave(client: Client) {
+        const player = this.waitingPlayers.find(p => p.client.sessionId === client.sessionId);
+
+        // Clear bot timer if player leaves
+        if (player?.botTimer) {
+            clearTimeout(player.botTimer);
+        }
+
         this.waitingPlayers = this.waitingPlayers.filter((p) => p.client.sessionId !== client.sessionId);
         console.log(`[Wasteland Matchmaking] Player left queue. Remaining: ${this.waitingPlayers.length}`);
     }
 
-    private async tryMatch() {
-        // Group players by bet amount and try to match within each group
-        const betAmounts = [...new Set(this.waitingPlayers.map(p => p.betAmount))];
+    private tryMatchPlayers(newPlayer: WaitingPlayer) {
+        // Look for another player with same bet amount (excluding the new player)
+        const opponent = this.waitingPlayers.find(
+            p => p.client.sessionId !== newPlayer.client.sessionId &&
+                 p.betAmount === newPlayer.betAmount
+        );
 
-        for (const betAmount of betAmounts) {
-            const playersAtAmount = this.waitingPlayers.filter(p => p.betAmount === betAmount);
+        if (opponent) {
+            // Found another player! Match them together
+            console.log(`[Wasteland Matchmaking] Matching ${newPlayer.playerName} vs ${opponent.playerName} (bet: $${newPlayer.betAmount})`);
 
-            if (playersAtAmount.length >= 2) {
-                const player1 = playersAtAmount[0];
-                const player2 = playersAtAmount[1];
-
-                // Remove from waiting list
-                this.waitingPlayers = this.waitingPlayers.filter(
-                    p => p.client.sessionId !== player1.client.sessionId && p.client.sessionId !== player2.client.sessionId
-                );
-
-                console.log(`[Wasteland Matchmaking] Matching ${player1.playerName} vs ${player2.playerName} (bet: $${betAmount})`);
-
-                try {
-                    // Generate a unique match ID
-                    const matchId = `wasteland_${Date.now()}`;
-
-                    // Create the actual game room on the server
-                    const gameRoom = await matchMaker.createRoom('wasteland', {
-                        matchId,
-                        betAmount,
-                    });
-
-                    console.log(`[Wasteland Matchmaking] Match created: ${matchId} (roomId: ${gameRoom.roomId})`);
-
-                    // Send match info to both players with the actual room ID
-                    player1.client.send('matchmaking:found', {
-                        matchId: gameRoom.roomId,
-                        isCreator: true,
-                        playerName: player1.playerName,
-                        opponentName: player2.playerName,
-                        betAmount,
-                    });
-                    player2.client.send('matchmaking:found', {
-                        matchId: gameRoom.roomId,
-                        isCreator: false,
-                        playerName: player2.playerName,
-                        opponentName: player1.playerName,
-                        betAmount,
-                    });
-                } catch (error) {
-                    console.error('[Wasteland Matchmaking] Failed to create room:', error);
-
-                    // Put players back in queue
-                    this.waitingPlayers.push(player1);
-                    this.waitingPlayers.push(player2);
-                }
+            // Clear bot timer if opponent had one
+            if (opponent.botTimer) {
+                clearTimeout(opponent.botTimer);
             }
+
+            // Remove both players from queue
+            this.waitingPlayers = this.waitingPlayers.filter(
+                p => p.client.sessionId !== newPlayer.client.sessionId &&
+                     p.client.sessionId !== opponent.client.sessionId
+            );
+
+            // Create match
+            const matchId = `match_${Date.now()}`;
+            console.log(`[Wasteland Matchmaking] PvP Match created: ${matchId}`);
+
+            // Send match info to both players
+            newPlayer.client.send('matchmaking:found', {
+                matchId,
+                isCreator: true,
+                playerName: newPlayer.playerName,
+                opponentName: opponent.playerName,
+                betAmount: newPlayer.betAmount,
+            });
+
+            opponent.client.send('matchmaking:found', {
+                matchId,
+                isCreator: false,
+                playerName: opponent.playerName,
+                opponentName: newPlayer.playerName,
+                betAmount: opponent.betAmount,
+            });
+        } else {
+            // No player found, schedule bot match after delay
+            console.log(`[Wasteland Matchmaking] No opponent found for ${newPlayer.playerName}, scheduling bot match in ${BOT_MATCH_DELAY/1000}s`);
+
+            newPlayer.botTimer = setTimeout(() => {
+                this.matchWithBot(newPlayer);
+            }, BOT_MATCH_DELAY);
+        }
+    }
+
+    private async matchWithBot(player: WaitingPlayer) {
+        // Check if player is still in queue
+        const stillWaiting = this.waitingPlayers.find(p => p.client.sessionId === player.client.sessionId);
+        if (!stillWaiting) {
+            console.log(`[Wasteland Matchmaking] Player ${player.playerName} no longer in queue`);
+            return;
+        }
+
+        console.log(`[Wasteland Matchmaking] Matching ${player.playerName} vs Bot (bet: $${player.betAmount})`);
+
+        // Remove player from queue
+        this.waitingPlayers = this.waitingPlayers.filter(
+            p => p.client.sessionId !== player.client.sessionId
+        );
+
+        try {
+            // Generate a unique match ID
+            const matchId = `match_${Date.now()}`;
+
+            console.log(`[Wasteland Matchmaking] Bot Match created: ${matchId}`);
+
+            // Send match info to player - they will create the room and bot will join automatically
+            player.client.send('matchmaking:found', {
+                matchId,
+                isCreator: true,
+                playerName: player.playerName,
+                opponentName: 'Bot',
+                betAmount: player.betAmount,
+            });
+        } catch (error) {
+            console.error('[Wasteland Matchmaking] Failed to create bot match:', error);
+            // Put player back in queue
+            this.waitingPlayers.push(player);
         }
     }
 }

@@ -40,12 +40,15 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
         gameResult: null,
         gameResultWinner: '',
     });
+    const [betAmount, setBetAmount] = useState<number>(Constants.DEFAULT_BET_AMOUNT);
+    const [isRematchQueuing, setIsRematchQueuing] = useState(false);
 
     const canvasRef = useRef<HTMLDivElement>();
     const clientRef = useRef<Client>();
     const gameRef = useRef<Game>();
     const roomRef = useRef<Room>();
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
+    const matchmakingRoomRef = useRef<Room | null>(null);
 
     //
     // Lifecycle
@@ -87,14 +90,15 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
         let options;
         if (isMatchmaking) {
             // From matchmaking - use match-specific settings
-            const betAmount = parsedSearch.betAmount ? Number(parsedSearch.betAmount) : Constants.DEFAULT_BET_AMOUNT;
+            const matchBetAmount = parsedSearch.betAmount ? Number(parsedSearch.betAmount) : Constants.DEFAULT_BET_AMOUNT;
+            setBetAmount(matchBetAmount);
             options = {
                 playerName: parsedSearch.playerName || localStorage.getItem('playerName'),
                 roomName: `${parsedSearch.playerName} vs ${parsedSearch.opponentName}`,
                 roomMap: 'small',
                 roomMaxPlayers: 2,
                 mode: 'deathmatch',
-                betAmount,
+                betAmount: matchBetAmount,
                 odinsId,
             };
         } else if (isNewRoom) {
@@ -171,9 +175,15 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
     }
 
     async function stop() {
-        // Colyseus
+        // Colyseus - leave game room
         if (roomRef.current) {
             roomRef.current.leave();
+        }
+
+        // Leave matchmaking room if active
+        if (matchmakingRoomRef.current) {
+            matchmakingRoomRef.current.leave();
+            matchmakingRoomRef.current = null;
         }
 
         // Game
@@ -309,11 +319,7 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
                 gameResultWinner = message.params.name;
                 const winnerId = message.params.odInsId;
                 gameResult = winnerId === roomRef.current?.sessionId ? 'won' : 'lost';
-
-                // Kick both players after match ends
-                setTimeout(() => {
-                    navigate('/');
-                }, 3500);
+                // Don't auto-navigate - let user choose via modal
                 break;
             case 'timeout':
                 announce = `Timeout...`;
@@ -385,6 +391,90 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
         gameRef.current.inputs.shoot = false;
     }
 
+    async function handlePlayAgain() {
+        if (isRematchQueuing) {
+            console.log('[Game] Already queuing for rematch, ignoring duplicate click');
+            return;
+        }
+
+        try {
+            setIsRematchQueuing(true);
+            console.log('[Game] Starting rematch with bet amount:', betAmount);
+
+            // Get user ID from localStorage
+            let odinsId: string | undefined;
+            try {
+                const stored = localStorage.getItem(SUPABASE_STORAGE_KEY);
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    odinsId = parsed?.user?.id;
+                }
+            } catch (e) {
+                console.error('[Game] Error parsing localStorage:', e);
+            }
+
+            // Stop current game rendering
+            gameRef.current?.stop();
+
+            // Leave current game room
+            if (roomRef.current) {
+                await roomRef.current.leave();
+                roomRef.current = null;
+            }
+
+            const playerName = localStorage.getItem('playerName') || 'Player';
+
+            // Connect to matchmaking
+            const host = window.document.location.host.replace(/:.*/, '');
+            const port = process.env.NODE_ENV !== 'production' ? Constants.WS_PORT : window.location.port;
+            const url = `${window.location.protocol.replace('http', 'ws')}//${host}${port ? `:${port}` : ''}`;
+
+            const matchmakingClient = new Client(url);
+            matchmakingRoomRef.current = await matchmakingClient.joinOrCreate('matchmaking', {
+                playerName,
+                odinsId: odinsId || '',
+                betAmount,
+            });
+
+            console.log('[Game] Joined matchmaking queue with bet:', betAmount);
+
+            // Listen for match found
+            matchmakingRoomRef.current.onMessage('matchmaking:found', async (data: any) => {
+                console.log('[Game] Match found:', data);
+
+                // Leave matchmaking room
+                if (matchmakingRoomRef.current) {
+                    await matchmakingRoomRef.current.leave();
+                    matchmakingRoomRef.current = null;
+                }
+
+                // Use full page reload to prevent component reuse issues
+                const params = new URLSearchParams({
+                    matchId: data.matchId,
+                    isCreator: data.isCreator.toString(),
+                    playerName: data.playerName,
+                    opponentName: data.opponentName,
+                    betAmount: data.betAmount.toString(),
+                });
+                window.location.href = `/new?${params.toString()}`;
+            });
+        } catch (error) {
+            console.error('[Game] Error starting rematch:', error);
+            setIsRematchQueuing(false);
+            navigate('/');
+        }
+    }
+
+    function handleGoHome() {
+        // Leave matchmaking if active
+        if (matchmakingRoomRef.current) {
+            matchmakingRoomRef.current.leave();
+            matchmakingRoomRef.current = null;
+        }
+        // Navigate to home page
+        navigate('/');
+    }
+
     return (
         <View
             style={{
@@ -432,6 +522,9 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
                 potLostKiller={hud.potLostKiller}
                 gameResult={hud.gameResult}
                 gameResultWinner={hud.gameResultWinner}
+                onPlayAgain={handlePlayAgain}
+                onGoHome={handleGoHome}
+                isRematchQueuing={isRematchQueuing}
             />
         </View>
     );
