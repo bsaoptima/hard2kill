@@ -1,5 +1,6 @@
 import { Client, Room, matchMaker } from 'colyseus';
 import { Constants } from '@hard2kill/gladiatorz-common';
+import { supabase } from '@hard2kill/shared';
 
 interface WaitingPlayer {
     client: Client;
@@ -11,6 +12,7 @@ interface WaitingPlayer {
 }
 
 const BOT_MATCH_DELAY = 5000; // 5 seconds before matching with bot
+const MAX_BOT_GAMES = 3; // Maximum bot games allowed per player
 
 export class MatchmakingRoom extends Room {
     private waitingPlayers: WaitingPlayer[] = [];
@@ -113,6 +115,30 @@ export class MatchmakingRoom extends Room {
         if (!stillWaiting) {
             console.log(`[Matchmaking] Player ${player.playerName} no longer in queue`);
             return;
+        }
+
+        // Check bot game limit if player has odinsId
+        if (player.odinsId && supabase) {
+            try {
+                // Count games where player faced the bot (either as winner or loser)
+                const { count, error } = await supabase
+                    .from('game_history')
+                    .select('*', { count: 'exact', head: true })
+                    .or(`and(winner_id.eq.${player.odinsId},loser_id.eq.${Constants.BOT_USER_ID}),and(loser_id.eq.${player.odinsId},winner_id.eq.${Constants.BOT_USER_ID})`);
+
+                if (error) {
+                    console.error('[Matchmaking] Error checking bot game count:', error);
+                } else if (count !== null && count >= MAX_BOT_GAMES) {
+                    console.log(`[Matchmaking] Player ${player.playerName} has reached bot game limit (${count}/${MAX_BOT_GAMES}) - keeping in queue for real opponent`);
+                    // Don't match with bot, just keep waiting for real opponent
+                    // Don't remove from queue - they stay and wait
+                    return;
+                }
+
+                console.log(`[Matchmaking] Player ${player.playerName} bot games: ${count}/${MAX_BOT_GAMES}`);
+            } catch (err) {
+                console.error('[Matchmaking] Error checking bot games:', err);
+            }
         }
 
         console.log(`[Matchmaking] Matching ${player.playerName} vs Bot (bet: $${player.betAmount})`);
