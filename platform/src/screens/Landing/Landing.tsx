@@ -37,7 +37,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
     const [isGladiatorMatchmaking, setIsGladiatorMatchmaking] = useState(false);
     const [gladiatorMatchmakingStatus, setGladiatorMatchmakingStatus] = useState('');
     const [selectedGladiatorBet, setSelectedGladiatorBet] = useState(Constants.DEFAULT_BET_AMOUNT);
-    const [livePlayerCount, setLivePlayerCount] = useState(16);
+    const [livePlayerCount, setLivePlayerCount] = useState(4);
     const [playerCountFlash, setPlayerCountFlash] = useState(false);
     const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
@@ -127,7 +127,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                     setTimeout(() => setPlayerCountFlash(false), 600); // Flash duration
                 }
 
-                return Math.max(10, Math.min(30, newCount)); // Keep between 10-30
+                return Math.max(0, Math.min(10, newCount)); // Keep between 0-10
             });
         };
 
