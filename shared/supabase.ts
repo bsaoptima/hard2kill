@@ -28,13 +28,19 @@ export const supabaseAdmin = isServer && process.env.SUPABASE_SERVICE_KEY
     })
     : null as any; // Type assertion for client-side (will never be used)
 
+export type Currency = 'cash' | 'coins';
+
+// Map a Currency to its DB column on the `balances` table
+function balanceColumn(currency: Currency): 'balance' | 'coins' {
+    return currency === 'coins' ? 'coins' : 'balance';
+}
+
 /**
- * Get the current user's balance (from session or by userId)
+ * Get the current user's balance for a given currency (defaults to cash).
  */
-export async function getBalance(userId?: string): Promise<number> {
+export async function getBalance(userId?: string, currency: Currency = 'cash'): Promise<number> {
     let targetUserId = userId;
 
-    // If no userId provided, get from session
     if (!targetUserId) {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user) {
@@ -43,12 +49,12 @@ export async function getBalance(userId?: string): Promise<number> {
         targetUserId = session.user.id;
     }
 
-    // Use admin client if available (server-side), otherwise use regular client
     const client = supabaseAdmin || supabase;
+    const column = balanceColumn(currency);
 
     const { data, error } = await client
         .from('balances')
-        .select('balance')
+        .select(column)
         .eq('id', targetUserId)
         .maybeSingle();
 
@@ -57,7 +63,7 @@ export async function getBalance(userId?: string): Promise<number> {
         return 0;
     }
 
-    return data?.balance || 0;
+    return ((data as any)?.[column]) || 0;
 }
 
 /**
@@ -127,78 +133,164 @@ export async function getCurrentUser() {
 }
 
 /**
- * Credit balance (used by Stripe webhook and server-side operations)
+ * Credit balance for a given currency (defaults to cash).
+ * Used by Stripe webhook, game wins, and coin claims.
  */
-export async function creditBalance(userId: string, amount: number): Promise<void> {
+export async function creditBalance(userId: string, amount: number, currency: Currency = 'cash'): Promise<void> {
     if (!supabaseAdmin) {
         console.error('Cannot credit balance: admin client not available');
         return;
     }
 
+    const column = balanceColumn(currency);
+
     const { data: balance } = await supabaseAdmin
         .from('balances')
-        .select('balance')
+        .select(column)
         .eq('id', userId)
         .maybeSingle();
 
-    const newBalance = (balance?.balance || 0) + amount;
+    const current = ((balance as any)?.[column]) || 0;
+    const newAmount = current + amount;
 
     await supabaseAdmin
         .from('balances')
-        .upsert({ id: userId, balance: newBalance });
+        .upsert({ id: userId, [column]: newAmount });
 }
 
 /**
- * Deduct balance (used when placing bets)
+ * Deduct balance for a given currency (defaults to cash). Used when placing bets.
  */
-export async function deductBalance(userId: string, amount: number): Promise<boolean> {
+export async function deductBalance(userId: string, amount: number, currency: Currency = 'cash'): Promise<boolean> {
     if (!supabaseAdmin) {
         console.error('Cannot deduct balance: admin client not available');
         return false;
     }
 
+    const column = balanceColumn(currency);
+
     const { data: balance } = await supabaseAdmin
         .from('balances')
-        .select('balance')
+        .select(column)
         .eq('id', userId)
         .maybeSingle();
 
-    const currentBalance = balance?.balance || 0;
+    const current = ((balance as any)?.[column]) || 0;
 
-    if (currentBalance < amount) {
+    if (current < amount) {
         return false; // Insufficient balance
     }
 
-    const newBalance = currentBalance - amount;
-
     const { error } = await supabaseAdmin
         .from('balances')
-        .update({ balance: newBalance })
+        .update({ [column]: current - amount })
         .eq('id', userId);
 
     return !error;
 }
 
+// ---------- Coin claim (hourly) ----------
+
+export const COIN_CLAIM_AMOUNT = 10;
+export const COIN_CLAIM_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+export interface CoinClaimResult {
+    success: boolean;
+    coins: number;          // new coin balance after claim (or current if not claimed)
+    nextClaimAt: string;    // ISO timestamp when next claim is allowed
+    reason?: 'cooldown' | 'error';
+}
+
+/**
+ * Attempt to claim hourly coins. Server-authoritative cooldown via last_coin_claim.
+ * Returns success + new balance, or failure + when the user can claim next.
+ */
+export async function claimCoins(userId: string): Promise<CoinClaimResult> {
+    if (!supabaseAdmin) {
+        console.error('Cannot claim coins: admin client not available');
+        return { success: false, coins: 0, nextClaimAt: new Date().toISOString(), reason: 'error' };
+    }
+
+    const { data: row, error: fetchError } = await supabaseAdmin
+        .from('balances')
+        .select('coins, last_coin_claim')
+        .eq('id', userId)
+        .maybeSingle();
+
+    if (fetchError) {
+        console.error('[claimCoins] fetch error:', fetchError);
+        return { success: false, coins: 0, nextClaimAt: new Date().toISOString(), reason: 'error' };
+    }
+
+    const now = Date.now();
+    const lastClaimMs = row?.last_coin_claim ? new Date(row.last_coin_claim).getTime() : 0;
+    const elapsed = now - lastClaimMs;
+    const currentCoins = row?.coins || 0;
+
+    if (elapsed < COIN_CLAIM_COOLDOWN_MS) {
+        const nextAt = new Date(lastClaimMs + COIN_CLAIM_COOLDOWN_MS).toISOString();
+        return { success: false, coins: currentCoins, nextClaimAt: nextAt, reason: 'cooldown' };
+    }
+
+    const newCoins = currentCoins + COIN_CLAIM_AMOUNT;
+    const nowIso = new Date(now).toISOString();
+
+    const { error: updateError } = await supabaseAdmin
+        .from('balances')
+        .upsert({ id: userId, coins: newCoins, last_coin_claim: nowIso });
+
+    if (updateError) {
+        console.error('[claimCoins] update error:', updateError);
+        return { success: false, coins: currentCoins, nextClaimAt: nowIso, reason: 'error' };
+    }
+
+    const nextAt = new Date(now + COIN_CLAIM_COOLDOWN_MS).toISOString();
+    return { success: true, coins: newCoins, nextClaimAt: nextAt };
+}
+
+/**
+ * Get the timestamp the user can next claim coins. Useful for UI countdown on mount.
+ */
+export async function getCoinClaimStatus(userId: string): Promise<{ coins: number; nextClaimAt: string }> {
+    const client = supabaseAdmin || supabase;
+    const { data } = await client
+        .from('balances')
+        .select('coins, last_coin_claim')
+        .eq('id', userId)
+        .maybeSingle();
+
+    const coins = data?.coins || 0;
+    const lastClaimMs = data?.last_coin_claim ? new Date(data.last_coin_claim).getTime() : 0;
+    const nextAt = lastClaimMs ? new Date(lastClaimMs + COIN_CLAIM_COOLDOWN_MS).toISOString() : new Date(0).toISOString();
+    return { coins, nextClaimAt: nextAt };
+}
+
 /**
  * Log game result to database for leaderboard/analytics
  */
+export type GameName = 'gladiatorz' | 'wasteland';
+
 export async function logGameResult(
     winnerId: string,
     loserId: string,
     amount: number,
-    startedAt: Date
+    startedAt: Date,
+    currency: Currency = 'cash',
+    game: GameName = 'gladiatorz'
 ): Promise<boolean> {
     if (!supabaseAdmin) {
         console.error('[logGameResult] Cannot log game result: admin client not available');
         return false;
     }
 
-    console.log(`[logGameResult] Inserting: winner=${winnerId}, loser=${loserId}, amount=${amount}`);
+    console.log(`[logGameResult] Inserting: winner=${winnerId}, loser=${loserId}, amount=${amount}, currency=${currency}, game=${game}`);
 
     const { data, error } = await supabaseAdmin.from('game_history').insert({
         winner_id: winnerId,
         loser_id: loserId,
         amount,
+        currency,
+        game,
         started_at: startedAt.toISOString(),
         ended_at: new Date().toISOString(),
     });

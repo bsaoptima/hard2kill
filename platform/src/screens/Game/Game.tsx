@@ -41,6 +41,7 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
         gameResultWinner: '',
     });
     const [betAmount, setBetAmount] = useState<number>(Constants.DEFAULT_BET_AMOUNT);
+    const [currency, setCurrency] = useState<'cash' | 'coins'>('cash');
     const [isRematchQueuing, setIsRematchQueuing] = useState(false);
 
     const canvasRef = useRef<HTMLDivElement>();
@@ -91,7 +92,9 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
         if (isMatchmaking) {
             // From matchmaking - use match-specific settings
             const matchBetAmount = parsedSearch.betAmount ? Number(parsedSearch.betAmount) : Constants.DEFAULT_BET_AMOUNT;
+            const matchCurrency: 'cash' | 'coins' = (parsedSearch as any).currency === 'coins' ? 'coins' : 'cash';
             setBetAmount(matchBetAmount);
+            setCurrency(matchCurrency);
             options = {
                 playerName: parsedSearch.playerName || localStorage.getItem('playerName'),
                 roomName: `${parsedSearch.playerName} vs ${parsedSearch.opponentName}`,
@@ -99,6 +102,7 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
                 roomMaxPlayers: 2,
                 mode: 'deathmatch',
                 betAmount: matchBetAmount,
+                currency: matchCurrency,
                 odinsId,
             };
         } else if (isNewRoom) {
@@ -434,6 +438,7 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
                 playerName,
                 odinsId: odinsId || '',
                 betAmount,
+                currency,
             });
 
             console.log('[Game] Joined matchmaking queue with bet:', betAmount);
@@ -455,6 +460,7 @@ export function GameScreen({ navigate, location, roomId }: GameScreenProps) {
                     playerName: data.playerName,
                     opponentName: data.opponentName,
                     betAmount: data.betAmount.toString(),
+                    currency: data.currency || 'cash',
                 });
                 window.location.href = `/new?${params.toString()}`;
             });

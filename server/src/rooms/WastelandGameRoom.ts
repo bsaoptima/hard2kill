@@ -1,6 +1,6 @@
 import { Room, Client } from 'colyseus';
 import { WastelandGameState, WastelandPlayer } from './WastelandGameState';
-import { creditBalance, deductBalance, logGameResult } from '@hard2kill/shared';
+import { creditBalance, deductBalance, logGameResult, Currency } from '@hard2kill/shared';
 
 interface MatchPlayer {
   userId?: string;
@@ -12,6 +12,7 @@ interface MatchPlayer {
 export class WastelandGameRoom extends Room<WastelandGameState> {
   private matchId?: string;
   private betAmount: number = 0;
+  private currency: Currency = 'cash';
   private matchPlayers: Map<string, MatchPlayer> = new Map();
   private isMatchRoom: boolean = false;
   private matchStartedAt?: Date;
@@ -23,9 +24,10 @@ export class WastelandGameRoom extends Room<WastelandGameState> {
     if (options.matchId && options.betAmount) {
       this.matchId = options.matchId;
       this.betAmount = options.betAmount;
+      this.currency = options.currency === 'coins' ? 'coins' : 'cash';
       this.isMatchRoom = true;
       this.maxClients = 2; // Limit to 2 players for match
-      console.log(`[Wasteland Match] Created match room ${this.matchId} with bet $${this.betAmount}`);
+      console.log(`[Wasteland Match] Created match room ${this.matchId} with bet ${this.betAmount} ${this.currency}`);
     }
 
     // Initialize state with Schema
@@ -137,13 +139,13 @@ export class WastelandGameRoom extends Room<WastelandGameState> {
         betAmount: this.betAmount,
       });
 
-      // Deduct bet from player's balance if they have a userId
+      // Deduct bet from player's balance if they have a userId (in the match's currency)
       if (userId) {
-        const success = await deductBalance(userId, this.betAmount);
+        const success = await deductBalance(userId, this.betAmount, this.currency);
         if (!success) {
           console.error(`[Wasteland Match] Failed to deduct bet from ${userId}`);
         } else {
-          console.log(`[Wasteland Match] Deducted $${this.betAmount} from ${playerName}`);
+          console.log(`[Wasteland Match] Deducted ${this.betAmount} ${this.currency} from ${playerName}`);
         }
       }
 
@@ -169,12 +171,12 @@ export class WastelandGameRoom extends Room<WastelandGameState> {
     }
 
     const totalPot = this.betAmount * 2;
-    console.log(`[Wasteland Match] Match ended! Winner: ${winner.playerName}, Loser: ${loser.playerName}, Pot: $${totalPot}`);
+    console.log(`[Wasteland Match] Match ended! Winner: ${winner.playerName}, Loser: ${loser.playerName}, Pot: ${totalPot} ${this.currency}`);
 
-    // Credit winner with the pot
+    // Credit winner with the pot (in the match's currency)
     if (winner.userId) {
-      await creditBalance(winner.userId, totalPot);
-      console.log(`[Wasteland Match] Credited $${totalPot} to ${winner.playerName}`);
+      await creditBalance(winner.userId, totalPot, this.currency);
+      console.log(`[Wasteland Match] Credited ${totalPot} ${this.currency} to ${winner.playerName}`);
     }
 
     // Log match result to database
@@ -183,7 +185,9 @@ export class WastelandGameRoom extends Room<WastelandGameState> {
         winner.userId,
         loser.userId,
         this.betAmount * 2,
-        this.matchStartedAt
+        this.matchStartedAt,
+        this.currency,
+        'wasteland',
       );
     }
 

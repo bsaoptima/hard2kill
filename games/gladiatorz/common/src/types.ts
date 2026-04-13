@@ -22,4 +22,5 @@ export interface RoomOptions {
     roomMaxPlayers: number;
     mode: GameMode;
     betAmount: number;
+    currency?: 'cash' | 'coins'; // Defaults to 'cash' if omitted
 }

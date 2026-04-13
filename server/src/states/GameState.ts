@@ -40,6 +40,7 @@ export class GameState extends Schema {
         maxPlayers: number,
         mode: Types.GameMode,
         betAmount: number,
+        currency: 'cash' | 'coins',
         onMessage: (message: Models.MessageJSON) => void,
     ) {
         super();
@@ -51,6 +52,7 @@ export class GameState extends Schema {
             maxPlayers,
             mode,
             betAmount,
+            currency,
             onWaitingStart: this.handleWaitingStart,
             onLobbyStart: this.handleLobbyStart,
             onGameStart: this.handleGameStart,
@@ -163,10 +165,12 @@ export class GameState extends Schema {
     };
 
     private handlePlayerWin = async (winner: Player) => {
-        // Credit winner's Supabase balance with their pot
+        const currency = this.game.currency;
+
+        // Credit winner's Supabase balance (in the match's currency) with their pot
         if (winner.odinsId && winner.pot > 0) {
-            console.log(`[WIN] Crediting ${winner.name} (${winner.odinsId}) with ${winner.pot}`);
-            await creditBalance(winner.odinsId, winner.pot);
+            console.log(`[WIN] Crediting ${winner.name} (${winner.odinsId}) with ${winner.pot} ${currency}`);
+            await creditBalance(winner.odinsId, winner.pot, currency);
         }
 
         // Find the loser (the other player who is not alive)
@@ -187,15 +191,17 @@ export class GameState extends Schema {
 
             // Only log if at least one player is human (not both bots)
             if (winner.odinsId || loser.odinsId) {
-                console.log(`[GAME] Attempting to log: winner=${winnerId}, loser=${loserId}, amount=${amount}`);
+                console.log(`[GAME] Attempting to log: winner=${winnerId}, loser=${loserId}, amount=${amount} ${currency}`);
                 const success = await logGameResult(
                     winnerId,
                     loserId,
                     amount,
-                    this.gameStartedAt
+                    this.gameStartedAt,
+                    currency,
+                    'gladiatorz',
                 );
                 if (success) {
-                    console.log(`[GAME] Successfully logged: ${winner.name} beat ${loser.name} for $${amount}`);
+                    console.log(`[GAME] Successfully logged: ${winner.name} beat ${loser.name} for ${amount} ${currency}`);
                 } else {
                     console.error(`[GAME] Failed to log game result`);
                 }

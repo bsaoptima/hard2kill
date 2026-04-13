@@ -8,6 +8,7 @@ export interface IGame {
     maxPlayers: number;
     mode: Types.GameMode;
     betAmount: number;
+    currency: 'cash' | 'coins';
     onWaitingStart: (message?: Models.MessageJSON) => void;
     onLobbyStart: (message?: Models.MessageJSON) => void;
     onGameStart: (message?: Models.MessageJSON) => void;
@@ -40,6 +41,9 @@ export class Game extends Schema {
     @type('number')
     public betAmount: number;
 
+    @type('string')
+    public currency: 'cash' | 'coins' = 'cash';
+
     // Hidden fields
     private onWaitingStart: (message?: Models.MessageJSON) => void;
 
@@ -59,6 +63,7 @@ export class Game extends Schema {
         this.maxPlayers = attributes.maxPlayers;
         this.mode = attributes.mode;
         this.betAmount = attributes.betAmount;
+        this.currency = attributes.currency;
         this.onWaitingStart = attributes.onWaitingStart;
         this.onLobbyStart = attributes.onLobbyStart;
         this.onGameStart = attributes.onGameStart;

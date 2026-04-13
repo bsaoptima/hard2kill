@@ -40,16 +40,38 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
     const [livePlayerCount, setLivePlayerCount] = useState(4);
     const [playerCountFlash, setPlayerCountFlash] = useState(false);
     const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+    const [activeTab, setActiveTab] = useState<'games' | 'leaderboard' | 'performance' | 'wallet'>('games');
+
+    // Coin balance + currency selection
+    type Currency = 'cash' | 'coins';
+    const [coins, setCoins] = useState<number | null>(null);
+    const [gladiatorCurrency, setGladiatorCurrency] = useState<Currency>('cash');
+    const [wastelandCurrency, setWastelandCurrency] = useState<Currency>('cash');
+    const [coinNextClaimAt, setCoinNextClaimAt] = useState<number>(0); // epoch ms
+    const [coinClaimTick, setCoinClaimTick] = useState(0); // forces re-render each second for countdown
+    const [claiming, setClaiming] = useState(false);
+
+    async function handleLogout() {
+        await supabase.auth.signOut();
+        // Clear local state
+        setUserId(null);
+        setUsername(null);
+        setBalance(null);
+        setCoins(null);
+        setCoinNextClaimAt(0);
+        setActiveTab('games');
+        navigate?.('/');
+    }
 
     // Get user and balance on mount and auth changes
     useEffect(() => {
         async function loadUserData(uid: string) {
             console.log('Loading user data for:', uid);
             try {
-                // Load balance - use maybeSingle to avoid errors if row doesn't exist
+                // Load balance (cash + coins + last_coin_claim) in a single query
                 const { data: balanceData, error: balanceError } = await supabase
                     .from('balances')
-                    .select('balance')
+                    .select('balance, coins, last_coin_claim')
                     .eq('id', uid)
                     .maybeSingle();
 
@@ -57,6 +79,9 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                     console.error('Error loading balance:', balanceError);
                 } else if (balanceData) {
                     setBalance(balanceData.balance);
+                    setCoins(balanceData.coins || 0);
+                    const lastClaim = balanceData.last_coin_claim ? new Date(balanceData.last_coin_claim).getTime() : 0;
+                    setCoinNextClaimAt(lastClaim ? lastClaim + 60 * 60 * 1000 : 0);
                 } else {
                     // No balance record exists, create one
                     console.log('Creating balance record for user');
@@ -66,6 +91,8 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
 
                     if (!insertError) {
                         setBalance(0);
+                        setCoins(0);
+                        setCoinNextClaimAt(0);
                     }
                 }
 
@@ -107,6 +134,8 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                 setUserId(null);
                 setUsername(null);
                 setBalance(null);
+                setCoins(null);
+                setCoinNextClaimAt(0);
             }
         });
 
@@ -139,13 +168,61 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
         if (!userId) return;
         const { data } = await supabase
             .from('balances')
-            .select('balance')
+            .select('balance, coins, last_coin_claim')
             .eq('id', userId)
             .single();
         if (data) {
             setBalance(data.balance);
+            setCoins(data.coins || 0);
+            const lastClaim = data.last_coin_claim ? new Date(data.last_coin_claim).getTime() : 0;
+            setCoinNextClaimAt(lastClaim ? lastClaim + 60 * 60 * 1000 : 0);
         }
     }
+
+    // Claim handler — hits the server endpoint
+    async function handleClaimCoins() {
+        if (!userId || claiming) return;
+        setClaiming(true);
+        try {
+            const res = await fetch('/api/claim-coins', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId }),
+            });
+            const result = await res.json();
+            if (result.success) {
+                setCoins(result.coins);
+                setCoinNextClaimAt(new Date(result.nextClaimAt).getTime());
+            } else if (result.nextClaimAt) {
+                // On cooldown — align our local timer with server's
+                setCoinNextClaimAt(new Date(result.nextClaimAt).getTime());
+                if (typeof result.coins === 'number') setCoins(result.coins);
+            }
+        } catch (err) {
+            console.error('Claim error:', err);
+        }
+        setClaiming(false);
+    }
+
+    // Tick every second so the countdown updates in the UI
+    useEffect(() => {
+        if (!coinNextClaimAt) return;
+        if (Date.now() >= coinNextClaimAt) return;
+        const interval = setInterval(() => setCoinClaimTick((t) => t + 1), 1000);
+        return () => clearInterval(interval);
+    }, [coinNextClaimAt]);
+
+    const coinsLoaded = coins !== null;
+    const msUntilNextClaim = Math.max(0, coinNextClaimAt - Date.now());
+    const canClaim = !!userId && coinsLoaded && msUntilNextClaim <= 0;
+    const coinCountdown = (() => {
+        if (!coinNextClaimAt || msUntilNextClaim <= 0) return '';
+        const totalSec = Math.ceil(msUntilNextClaim / 1000);
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        return `${m}m ${s.toString().padStart(2, '0')}s`;
+    })();
+    void coinClaimTick; // force this derived value to re-render with the tick
 
     // Check for deposit success in URL
     useEffect(() => {
@@ -256,9 +333,13 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
             return;
         }
 
-        // Check if user has enough balance
-        if (balance === null || balance < selectedWastelandBet) {
-            setWastelandMatchmakingStatus(`Insufficient balance. Need $${selectedWastelandBet} to play.`);
+        // Check balance in the selected currency
+        const currency = wastelandCurrency;
+        const walletBalance = currency === 'coins' ? coins : balance;
+        if (walletBalance === null || walletBalance < selectedWastelandBet) {
+            const prefix = currency === 'coins' ? '' : '$';
+            const suffix = currency === 'coins' ? ' coins' : '';
+            setWastelandMatchmakingStatus(`Insufficient ${currency}. Need ${prefix}${selectedWastelandBet}${suffix} to play.`);
             return;
         }
 
@@ -278,9 +359,11 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                 playerName,
                 odinsId: userId,
                 betAmount: selectedWastelandBet,
+                currency,
             });
 
-            setWastelandMatchmakingStatus(`Waiting for $${selectedWastelandBet} opponent...`);
+            const display = currency === 'coins' ? `${selectedWastelandBet} coins` : `$${selectedWastelandBet}`;
+            setWastelandMatchmakingStatus(`Waiting for ${display} opponent...`);
 
             wastelandRoomRef.current.onMessage('matchmaking:status', (data: any) => {
                 setWastelandMatchmakingStatus(`Waiting for opponent... (Position: ${data.position})`);
@@ -299,6 +382,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                     playerName: data.playerName,
                     opponentName: data.opponentName,
                     betAmount: data.betAmount.toString(),
+                    currency: data.currency || 'cash',
                 });
                 navigate(`/three-fps?${params.toString()}`);
             });
@@ -331,9 +415,13 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
             return;
         }
 
-        // Check if user has enough balance
-        if (balance === null || balance < selectedGladiatorBet) {
-            setGladiatorMatchmakingStatus(`Insufficient balance. Need $${selectedGladiatorBet} to play.`);
+        // Check balance in the selected currency
+        const currency = gladiatorCurrency;
+        const walletBalance = currency === 'coins' ? coins : balance;
+        if (walletBalance === null || walletBalance < selectedGladiatorBet) {
+            const prefix = currency === 'coins' ? '' : '$';
+            const suffix = currency === 'coins' ? ' coins' : '';
+            setGladiatorMatchmakingStatus(`Insufficient ${currency}. Need ${prefix}${selectedGladiatorBet}${suffix} to play.`);
             return;
         }
 
@@ -353,9 +441,11 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                 playerName,
                 odinsId: userId,
                 betAmount: selectedGladiatorBet,
+                currency,
             });
 
-            setGladiatorMatchmakingStatus(`Waiting for $${selectedGladiatorBet} opponent...`);
+            const display = currency === 'coins' ? `${selectedGladiatorBet} coins` : `$${selectedGladiatorBet}`;
+            setGladiatorMatchmakingStatus(`Waiting for ${display} opponent...`);
 
             roomRef.current.onMessage('matchmaking:status', (data: any) => {
                 setGladiatorMatchmakingStatus(`Waiting for opponent... (Position: ${data.position})`);
@@ -374,6 +464,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                     playerName: data.playerName,
                     opponentName: data.opponentName,
                     betAmount: data.betAmount.toString(),
+                    currency: data.currency || 'cash',
                 });
                 navigate(`/${data.matchId}?${params.toString()}`);
             });
@@ -389,6 +480,348 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
         }
     }
 
+    // ==========================================
+    // AUTHENTICATED LAYOUT — sidebar + page content
+    // ==========================================
+    if (userId) {
+        const navItems: Array<{ id: typeof activeTab; label: string }> = [
+            { id: 'games', label: 'Games' },
+            { id: 'leaderboard', label: 'Leaderboard' },
+            { id: 'performance', label: 'Performance' },
+            { id: 'wallet', label: 'Wallet' },
+        ];
+
+        return (
+            <View style={styles.appShell}>
+                <View style={styles.sidebar}>
+                    <Text style={styles.sidebarLogo}>
+                        H<span style={{ color: '#39ff14' }}>2</span>K
+                    </Text>
+
+                    <Space size="m" />
+
+                    <View style={styles.sidebarBalance}>
+                        <Text style={styles.sidebarBalanceLabel}>CASH</Text>
+                        <Text style={styles.sidebarBalanceValue}>
+                            ${balance !== null ? balance.toLocaleString('en-US') : '...'}
+                        </Text>
+                    </View>
+
+                    <Space size="xxs" />
+
+                    <View style={styles.sidebarCoinsCard}>
+                        <Text style={styles.sidebarBalanceLabel}>COINS</Text>
+                        <Text style={styles.sidebarCoinsCardValue}>
+                            🪙 {coins !== null ? coins.toLocaleString('en-US') : '...'}
+                        </Text>
+                    </View>
+
+                    <Space size="l" />
+
+                    <View style={styles.sidebarNav}>
+                        {navItems.map((tab) => (
+                            <button
+                                key={tab.id}
+                                style={{
+                                    ...styles.sidebarNavItem,
+                                    ...(activeTab === tab.id ? styles.sidebarNavItemActive : {}),
+                                }}
+                                onClick={() => setActiveTab(tab.id)}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
+                    </View>
+
+                    <View style={{ flex: 1 }} />
+
+                    <button style={styles.sidebarLogout} onClick={handleLogout}>
+                        LOGOUT
+                    </button>
+                </View>
+
+                <View style={styles.mainArea}>
+                    <View style={styles.topBar}>
+                        <button
+                            style={styles.topBarUser}
+                            onClick={() => setActiveTab('performance')}
+                            title="View profile"
+                        >
+                            <View style={styles.topBarAvatar}>
+                                <Text style={styles.topBarAvatarText}>
+                                    {(username || 'P').charAt(0).toUpperCase()}
+                                </Text>
+                            </View>
+                            <Text style={styles.topBarUserName}>{username || 'Player'}</Text>
+                        </button>
+                    </View>
+                    <View style={styles.mainContent}>
+                    {activeTab === 'games' && (
+                        <View style={styles.pageContainer}>
+                            <Text style={styles.pageTitle}>Games</Text>
+                            <Space size="xs" />
+                            <Text style={styles.pageSubtitle}>Pick a game, set your bet, find a match. Winner takes the pot.</Text>
+                            <Space size="l" />
+
+                            {/* Hourly coin claim widget */}
+                            <View style={styles.claimCard}>
+                                <View style={styles.claimCardLeft}>
+                                    <Text style={styles.claimCoinIcon}>🪙</Text>
+                                    <View>
+                                        <Text style={styles.claimTitle}>Free coins every hour</Text>
+                                        <Text style={styles.claimSubtitle}>
+                                            {!coinsLoaded
+                                                ? 'Checking your claim status...'
+                                                : canClaim
+                                                    ? '10 coins available right now'
+                                                    : `Next claim in ${coinCountdown || '...'}`}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <button
+                                    className="btn-3d"
+                                    onClick={handleClaimCoins}
+                                    disabled={!coinsLoaded || !canClaim || claiming}
+                                    style={{
+                                        width: 'auto',
+                                        flexShrink: 0,
+                                        alignSelf: 'center',
+                                        opacity: coinsLoaded && canClaim && !claiming ? 1 : 0.5,
+                                    }}
+                                >
+                                    <span className="btn-3d-top">
+                                        {!coinsLoaded
+                                            ? 'LOADING...'
+                                            : claiming
+                                                ? 'CLAIMING...'
+                                                : canClaim
+                                                    ? 'CLAIM 10 COINS'
+                                                    : 'ON COOLDOWN'}
+                                    </span>
+                                </button>
+                            </View>
+
+                            <Space size="l" />
+
+                            <View style={{ ...styles.gamesGrid, maxWidth: '100%', paddingLeft: 0, paddingRight: 0, alignItems: 'stretch' }}>
+                                <View style={{ ...styles.gameCard, padding: isMobile ? 16 : 20 }}>
+                                    <div style={{
+                                        overflow: 'hidden',
+                                        borderRadius: 8,
+                                        width: isMobile ? '100%' : '100%',
+                                        maxWidth: isMobile ? '100%' : 500,
+                                        flex: isMobile ? 'none' : '0 1 500px',
+                                        minWidth: 0,
+                                        height: isMobile ? 200 : 350,
+                                    }}>
+                                        <video
+                                            src="/gladiatorz.mov"
+                                            autoPlay
+                                            loop
+                                            muted
+                                            playsInline
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8, transform: 'scale(1.15)' } as React.CSSProperties}
+                                        />
+                                    </div>
+                                    <View style={styles.gameCardContent}>
+                                        <Text style={styles.gameTitle}>Gladiatorz</Text>
+                                        <Space size="xs" />
+                                        <Text style={styles.gameDescription}>Shoot your opponent 3 times to win in this Brawlstar like arcade game.</Text>
+                                        <Space size="m" />
+                                        <CurrencyToggle
+                                            value={gladiatorCurrency}
+                                            onChange={setGladiatorCurrency}
+                                            disabled={isGladiatorMatchmaking}
+                                        />
+                                        <Space size="s" />
+                                        <View style={styles.betSelector}>
+                                            <Text style={styles.betLabel}>BET AMOUNT</Text>
+                                            <View style={styles.betOptions}>
+                                                {Constants.BET_AMOUNTS.map((amount) => (
+                                                    <button
+                                                        key={amount}
+                                                        style={{
+                                                            ...styles.betButton,
+                                                            backgroundColor: selectedGladiatorBet === amount ? '#39ff14' : '#222',
+                                                            color: selectedGladiatorBet === amount ? '#000' : '#fff',
+                                                            borderColor: selectedGladiatorBet === amount ? '#39ff14' : '#333',
+                                                        }}
+                                                        onClick={() => setSelectedGladiatorBet(amount)}
+                                                        disabled={isGladiatorMatchmaking}
+                                                    >
+                                                        {gladiatorCurrency === 'coins' ? `🪙 ${amount}` : `$${amount}`}
+                                                    </button>
+                                                ))}
+                                            </View>
+                                        </View>
+                                        <Space size="m" />
+                                        <button className="btn-3d" onClick={handleGladiatorMatchmaking}>
+                                            <span className="btn-3d-top">
+                                                {isGladiatorMatchmaking
+                                                    ? 'CANCEL'
+                                                    : `FIND ${gladiatorCurrency === 'coins' ? `🪙 ${selectedGladiatorBet}` : `$${selectedGladiatorBet}`} MATCH`}
+                                            </span>
+                                        </button>
+                                        {gladiatorMatchmakingStatus && (
+                                            <>
+                                                <Space size="s" />
+                                                <Text style={styles.statusText}>{gladiatorMatchmakingStatus}</Text>
+                                            </>
+                                        )}
+                                        <Space size="xs" />
+                                        <View style={{
+                                            ...styles.livePlayersContainer,
+                                            animation: playerCountFlash ? 'playerCountFlash 0.6s ease-out' : 'none',
+                                        }}>
+                                            <Text style={styles.livePlayersText}>
+                                                <span style={styles.greenDot}>🟢</span> {livePlayerCount} players currently online
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+
+                                <View style={{ ...styles.gameCard, padding: isMobile ? 16 : 20 }}>
+                                    <div style={{
+                                        overflow: 'hidden',
+                                        borderRadius: 8,
+                                        width: isMobile ? '100%' : '100%',
+                                        maxWidth: isMobile ? '100%' : 500,
+                                        flex: isMobile ? 'none' : '0 1 500px',
+                                        minWidth: 0,
+                                        height: isMobile ? 200 : 350,
+                                    }}>
+                                        <img
+                                            src="https://i.giphy.com/fxfmMuGbh5aPtZ9T6j.webp"
+                                            alt="Wasteland"
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8, display: 'block' }}
+                                        />
+                                    </div>
+                                    <View style={styles.gameCardContent}>
+                                        <Text style={styles.gameTitle}>Wasteland</Text>
+                                        <Space size="xs" />
+                                        <Text style={styles.gameDescription}>FPS deathmatch. Eliminate your opponent to win money.</Text>
+                                        <Space size="m" />
+                                        <CurrencyToggle
+                                            value={wastelandCurrency}
+                                            onChange={setWastelandCurrency}
+                                            disabled={isWastelandMatchmaking}
+                                        />
+                                        <Space size="s" />
+                                        <View style={styles.betSelector}>
+                                            <Text style={styles.betLabel}>BET AMOUNT</Text>
+                                            <View style={styles.betOptions}>
+                                                {Constants.BET_AMOUNTS.map((amount) => (
+                                                    <button
+                                                        key={amount}
+                                                        style={{
+                                                            ...styles.betButton,
+                                                            backgroundColor: selectedWastelandBet === amount ? '#39ff14' : '#222',
+                                                            color: selectedWastelandBet === amount ? '#000' : '#fff',
+                                                            borderColor: selectedWastelandBet === amount ? '#39ff14' : '#333',
+                                                        }}
+                                                        onClick={() => setSelectedWastelandBet(amount)}
+                                                        disabled={isWastelandMatchmaking}
+                                                    >
+                                                        {wastelandCurrency === 'coins' ? `🪙 ${amount}` : `$${amount}`}
+                                                    </button>
+                                                ))}
+                                            </View>
+                                        </View>
+                                        <Space size="m" />
+                                        <button className="btn-3d" onClick={handleWastelandMatchmaking}>
+                                            <span className="btn-3d-top">
+                                                {isWastelandMatchmaking
+                                                    ? 'CANCEL'
+                                                    : `FIND ${wastelandCurrency === 'coins' ? `🪙 ${selectedWastelandBet}` : `$${selectedWastelandBet}`} MATCH`}
+                                            </span>
+                                        </button>
+                                        {wastelandMatchmakingStatus && (
+                                            <>
+                                                <Space size="s" />
+                                                <Text style={styles.statusText}>{wastelandMatchmakingStatus}</Text>
+                                            </>
+                                        )}
+                                    </View>
+                                </View>
+                            </View>
+                        </View>
+                    )}
+
+                    {activeTab === 'leaderboard' && (
+                        <View style={styles.pageContainer}>
+                            <Text style={styles.pageTitle}>Leaderboard</Text>
+                            <Space size="xs" />
+                            <Text style={styles.pageSubtitle}>Top 10 earners across all games. Updated every time a match ends.</Text>
+                            <Space size="l" />
+                            <LeaderboardPage />
+                        </View>
+                    )}
+
+                    {activeTab === 'performance' && (
+                        <View style={styles.pageContainer}>
+                            <Text style={styles.pageTitle}>Performance</Text>
+                            <Space size="xs" />
+                            <Text style={styles.pageSubtitle}>Your win rate, net earnings, and the last few matches you played.</Text>
+                            <Space size="l" />
+                            <PerformancePage userId={userId} />
+                        </View>
+                    )}
+
+                    {activeTab === 'wallet' && (
+                        <View style={styles.pageContainer}>
+                            <Text style={styles.pageTitle}>Wallet</Text>
+                            <Space size="xs" />
+                            <Text style={styles.pageSubtitle}>Top up to play, cash out when you're ahead. 10% fee on withdrawals.</Text>
+                            <Space size="l" />
+                            <WalletPage
+                                userId={userId}
+                                balance={balance}
+                                onDeposit={() => setShowDepositModal(true)}
+                                onWithdraw={() => setShowWithdrawModal(true)}
+                            />
+                        </View>
+                    )}
+                    </View>
+                </View>
+
+                {showDepositModal && (
+                    <DepositModal
+                        onClose={() => setShowDepositModal(false)}
+                        onSuccess={() => {
+                            setShowDepositModal(false);
+                            fetchBalance();
+                        }}
+                    />
+                )}
+
+                {showWithdrawModal && (
+                    <WithdrawModal
+                        balance={balance || 0}
+                        onClose={() => setShowWithdrawModal(false)}
+                        onSuccess={() => {
+                            setShowWithdrawModal(false);
+                            fetchBalance();
+                        }}
+                    />
+                )}
+
+                {showUsernameModal && userId && (
+                    <UsernameModal
+                        userId={userId}
+                        onSuccess={(name) => {
+                            setUsername(name);
+                            localStorage.setItem('playerName', name);
+                            setShowUsernameModal(false);
+                        }}
+                    />
+                )}
+            </View>
+        );
+    }
+
+    // ==========================================
+    // UNAUTHENTICATED LAYOUT (marketing landing)
+    // ==========================================
     return (
         <View
             flex
@@ -1286,6 +1719,204 @@ const styles: { [key: string]: React.CSSProperties } = {
         padding: isMobile ? '0 16px' : '0 32px',
         zIndex: 1000,
     },
+    // ==== Authenticated sidebar layout ====
+    appShell: {
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        minHeight: '100vh',
+        backgroundColor: '#000',
+    },
+    sidebar: {
+        width: isMobile ? '100%' : 240,
+        minWidth: isMobile ? 'auto' : 240,
+        height: isMobile ? 'auto' : '100vh',
+        position: isMobile ? 'static' : 'sticky',
+        top: 0,
+        alignSelf: 'flex-start',
+        backgroundColor: '#0a0a0a',
+        borderRight: isMobile ? 'none' : '1px solid #1f1f1f',
+        borderBottom: isMobile ? '1px solid #1f1f1f' : 'none',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: isMobile ? 20 : 28,
+        overflowY: 'auto',
+        boxSizing: 'border-box',
+    },
+    sidebarLogo: {
+        fontSize: isMobile ? 28 : 36,
+        fontFamily: '"Zen Dots", sans-serif',
+        fontStyle: 'italic',
+        fontWeight: 'bold',
+        color: '#fff',
+        letterSpacing: -1,
+    },
+    sidebarBalance: {
+        backgroundColor: 'rgba(57, 255, 20, 0.08)',
+        border: '1px solid rgba(57, 255, 20, 0.35)',
+        borderRadius: 10,
+        padding: isMobile ? '10px 14px' : '14px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+    },
+    sidebarBalanceLabel: {
+        fontSize: 10,
+        color: '#666',
+        letterSpacing: 1.5,
+    },
+    sidebarBalanceValue: {
+        fontSize: isMobile ? 20 : 24,
+        fontWeight: 'bold',
+        color: '#39ff14',
+    },
+    sidebarCoinsCard: {
+        backgroundColor: 'rgba(245, 197, 24, 0.08)',
+        border: '1px solid rgba(245, 197, 24, 0.35)',
+        borderRadius: 10,
+        padding: isMobile ? '10px 14px' : '14px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+    },
+    sidebarCoinsCardValue: {
+        fontSize: isMobile ? 20 : 24,
+        fontWeight: 'bold',
+        color: '#f5c518',
+    },
+    sidebarNav: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+    },
+    sidebarNavItem: {
+        textAlign: 'left',
+        backgroundColor: 'transparent',
+        border: 'none',
+        outline: 'none',
+        color: '#888',
+        fontSize: 15,
+        fontWeight: 600,
+        padding: '12px 14px',
+        borderRadius: 8,
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+        transition: 'background-color 0.15s, color 0.15s',
+    },
+    sidebarNavItemActive: {
+        backgroundColor: '#111',
+        color: '#39ff14',
+    },
+    sidebarLogout: {
+        background: 'none',
+        border: '1px solid #333',
+        color: '#888',
+        fontSize: 13,
+        fontWeight: 'bold',
+        padding: '10px 14px',
+        borderRadius: 8,
+        cursor: 'pointer',
+        letterSpacing: 1,
+        transition: 'color 0.15s, border-color 0.15s',
+    },
+    mainArea: {
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        minWidth: 0,
+    },
+    topBar: {
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        height: isMobile ? 56 : 68,
+        padding: isMobile ? '0 16px' : '0 32px',
+        borderBottom: '1px solid #1f1f1f',
+        backgroundColor: '#0a0a0a',
+    },
+    topBarUser: {
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        backgroundColor: 'transparent',
+        border: 'none',
+        outline: 'none',
+        padding: 6,
+        borderRadius: 999,
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+        transition: 'background-color 0.15s',
+    },
+    topBarUserName: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: 600,
+    },
+    topBarAvatar: {
+        width: isMobile ? 32 : 36,
+        height: isMobile ? 32 : 36,
+        borderRadius: '50%',
+        backgroundColor: '#39ff14',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    topBarAvatarText: {
+        color: '#000',
+        fontSize: isMobile ? 14 : 16,
+        fontWeight: 'bold',
+    },
+    mainContent: {
+        flex: 1,
+        padding: isMobile ? 20 : 40,
+        overflowY: 'auto',
+    },
+    pageContainer: {
+        width: '100%',
+    },
+    pageTitle: {
+        fontSize: isMobile ? 28 : 40,
+        fontFamily: '"Zen Dots", sans-serif',
+        fontStyle: 'italic',
+        fontWeight: 'bold',
+        color: '#fff',
+        letterSpacing: -1,
+    },
+    pageSubtitle: {
+        fontSize: isMobile ? 14 : 15,
+        color: '#d4d4d4',
+        lineHeight: 1.4,
+    },
+    claimCard: {
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        alignItems: isMobile ? 'stretch' : 'center',
+        justifyContent: 'space-between',
+        gap: 16,
+        backgroundColor: 'rgba(245, 197, 24, 0.08)',
+        border: '1px solid rgba(245, 197, 24, 0.35)',
+        borderRadius: 12,
+        padding: isMobile ? 16 : 20,
+    },
+    claimCardLeft: {
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+    },
+    claimCoinIcon: {
+        fontSize: isMobile ? 32 : 40,
+    },
+    claimTitle: {
+        fontSize: isMobile ? 16 : 18,
+        fontWeight: 'bold',
+        color: '#fff',
+    },
+    claimSubtitle: {
+        fontSize: 13,
+        color: '#aaa',
+    },
     navbarTitle: {
         fontSize: isMobile ? 20 : 28,
         fontFamily: '"Zen Dots", sans-serif',
@@ -1406,6 +2037,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         alignItems: isMobile ? 'center' : 'stretch',
         gap: isMobile ? 16 : 20,
         width: '100%',
+        boxSizing: 'border-box',
     },
     gameImage: {
         width: isMobile ? '100%' : 500,
@@ -1447,6 +2079,7 @@ const styles: { [key: string]: React.CSSProperties } = {
         justifyContent: 'center',
         flex: 1,
         width: '100%',
+        minWidth: 0,
     },
     gameTitleRow: {
         display: 'flex',
@@ -1704,6 +2337,779 @@ interface LeaderboardEntry {
     total_winnings: number;
     games_won: number;
 }
+
+// ============================================
+// Sidebar page: Leaderboard (inline, no overlay)
+// ============================================
+function LeaderboardPage() {
+    const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        async function fetchLeaderboard() {
+            try {
+                const { data, error } = await supabase
+                    .from('game_history')
+                    .select('winner_id, amount')
+                    .order('ended_at', { ascending: false })
+                    .limit(100);
+
+                if (error) {
+                    console.error('Leaderboard error:', error);
+                    setLoading(false);
+                    return;
+                }
+
+                const aggregated: { [key: string]: LeaderboardEntry } = {};
+                data?.forEach((game) => {
+                    if (!aggregated[game.winner_id]) {
+                        aggregated[game.winner_id] = {
+                            winner_id: game.winner_id,
+                            display_name: '',
+                            total_winnings: 0,
+                            games_won: 0,
+                        };
+                    }
+                    aggregated[game.winner_id].total_winnings += game.amount;
+                    aggregated[game.winner_id].games_won += 1;
+                });
+
+                const sorted = Object.values(aggregated)
+                    .sort((a, b) => b.total_winnings - a.total_winnings)
+                    .slice(0, 10);
+
+                const userIds = sorted.map((e) => e.winner_id);
+                if (userIds.length > 0) {
+                    const { data: profiles } = await supabase
+                        .from('profiles')
+                        .select('id, username')
+                        .in('id', userIds);
+
+                    const usernameMap: { [key: string]: string } = {};
+                    profiles?.forEach((p) => {
+                        usernameMap[p.id] = p.username;
+                    });
+
+                    sorted.forEach((entry) => {
+                        entry.display_name = usernameMap[entry.winner_id] || `Player ${entry.winner_id.slice(0, 6)}`;
+                    });
+                }
+
+                setEntries(sorted);
+            } catch (err) {
+                console.error('Leaderboard fetch error:', err);
+            }
+            setLoading(false);
+        }
+
+        fetchLeaderboard();
+    }, []);
+
+    if (loading) return <Text style={{ color: '#666' }}>Loading...</Text>;
+    if (entries.length === 0) return <Text style={{ color: '#666' }}>No games played yet. Be the first!</Text>;
+
+    return (
+        <View style={leaderboardStyles.table}>
+            <View style={leaderboardStyles.headerRow}>
+                <Text style={{ ...leaderboardStyles.cell, ...leaderboardStyles.rankCell }}>#</Text>
+                <Text style={{ ...leaderboardStyles.cell, ...leaderboardStyles.nameCell }}>Player</Text>
+                <Text style={{ ...leaderboardStyles.cell, ...leaderboardStyles.winsCell }}>Wins</Text>
+                <Text style={{ ...leaderboardStyles.cell, ...leaderboardStyles.earningsCell }}>Earnings</Text>
+            </View>
+            {entries.map((entry, index) => (
+                <View key={entry.winner_id} style={{
+                    ...leaderboardStyles.row,
+                    backgroundColor: index === 0 ? 'rgba(57, 255, 20, 0.1)' : 'transparent',
+                }}>
+                    <Text style={{
+                        ...leaderboardStyles.cell,
+                        ...leaderboardStyles.rankCell,
+                        color: index === 0 ? '#39ff14' : index === 1 ? '#c0c0c0' : index === 2 ? '#cd7f32' : '#888',
+                    }}>
+                        {index + 1}
+                    </Text>
+                    <Text style={{ ...leaderboardStyles.cell, ...leaderboardStyles.nameCell, color: '#fff' }}>
+                        {entry.display_name}
+                    </Text>
+                    <Text style={{ ...leaderboardStyles.cell, ...leaderboardStyles.winsCell }}>
+                        {entry.games_won}
+                    </Text>
+                    <Text style={{
+                        ...leaderboardStyles.cell,
+                        ...leaderboardStyles.earningsCell,
+                        color: '#4ade80',
+                    }}>
+                        ${entry.total_winnings}
+                    </Text>
+                </View>
+            ))}
+        </View>
+    );
+}
+
+// ============================================
+// Sidebar page: Performance (stats + history)
+// ============================================
+interface PerformanceGame {
+    id: string;
+    winner_id: string;
+    loser_id: string;
+    amount: number;
+    ended_at: string;
+    game?: string;
+    isWin: boolean;
+}
+
+function PerformancePage({ userId }: { userId: string }) {
+    const [loading, setLoading] = useState(true);
+    const [games, setGames] = useState<PerformanceGame[]>([]);
+    const [stats, setStats] = useState({ totalGames: 0, wins: 0, losses: 0, winRate: 0, totalEarnings: 0 });
+    const [hoveredId, setHoveredId] = useState<string | null>(null);
+    const [shareGame, setShareGame] = useState<PerformanceGame | null>(null);
+
+    useEffect(() => {
+        async function load() {
+            try {
+                const { data } = await supabase
+                    .from('game_history')
+                    .select('*')
+                    .or(`winner_id.eq.${userId},loser_id.eq.${userId}`)
+                    .order('ended_at', { ascending: false })
+                    .limit(20);
+
+                if (data) {
+                    const history: PerformanceGame[] = data.map((g: any) => ({ ...g, isWin: g.winner_id === userId }));
+                    setGames(history);
+                    const wins = history.filter((g) => g.isWin).length;
+                    const losses = history.filter((g) => !g.isWin).length;
+                    const totalGames = wins + losses;
+                    const winRate = totalGames > 0 ? (wins / totalGames) * 100 : 0;
+                    const totalEarnings = history.reduce((sum, g) => sum + (g.isWin ? g.amount : -g.amount), 0);
+                    setStats({ totalGames, wins, losses, winRate, totalEarnings });
+                }
+            } catch (err) {
+                console.error('Performance fetch error:', err);
+            }
+            setLoading(false);
+        }
+        load();
+    }, [userId]);
+
+    if (loading) return <Text style={{ color: '#666' }}>Loading...</Text>;
+
+    return (
+        <View>
+            <View style={perfStyles.statsRow}>
+                <View style={perfStyles.statCard}>
+                    <Text style={perfStyles.statLabel}>GAMES</Text>
+                    <Text style={perfStyles.statValue}>{stats.totalGames}</Text>
+                </View>
+                <View style={perfStyles.statCard}>
+                    <Text style={perfStyles.statLabel}>WINS</Text>
+                    <Text style={{ ...perfStyles.statValue, color: '#39ff14' }}>{stats.wins}</Text>
+                </View>
+                <View style={perfStyles.statCard}>
+                    <Text style={perfStyles.statLabel}>LOSSES</Text>
+                    <Text style={{ ...perfStyles.statValue, color: '#ff4444' }}>{stats.losses}</Text>
+                </View>
+                <View style={perfStyles.statCard}>
+                    <Text style={perfStyles.statLabel}>WIN RATE</Text>
+                    <Text style={perfStyles.statValue}>{stats.winRate.toFixed(0)}%</Text>
+                </View>
+                <View style={perfStyles.statCard}>
+                    <Text style={perfStyles.statLabel}>NET EARNINGS</Text>
+                    <Text style={{ ...perfStyles.statValue, color: stats.totalEarnings >= 0 ? '#39ff14' : '#ff4444' }}>
+                        {stats.totalEarnings >= 0 ? '+' : ''}${stats.totalEarnings}
+                    </Text>
+                </View>
+            </View>
+
+            <Space size="l" />
+
+            <Text style={perfStyles.sectionTitle}>Recent Games</Text>
+            <Space size="s" />
+
+            {games.length === 0 ? (
+                <Text style={{ color: '#666' }}>No games yet.</Text>
+            ) : (
+                <View style={perfStyles.historyList}>
+                    {shareGame && (
+                        <ShareGameModal game={shareGame} onClose={() => setShareGame(null)} />
+                    )}
+                    {groupGamesByDay(games).map(({ label, items }) => (
+                        <View key={label} style={perfStyles.historyGroup}>
+                            <Text style={perfStyles.historyDayLabel}>{label}</Text>
+                            {items.map((g) => (
+                                <View
+                                    key={g.id}
+                                    style={{ ...perfStyles.historyRow, position: 'relative' }}
+                                    onMouseEnter={() => setHoveredId(g.id)}
+                                    onMouseLeave={() => setHoveredId(null)}
+                                >
+                                    <View style={perfStyles.gamePill}>
+                                        <Text style={perfStyles.gamePillText}>
+                                            {formatGameName(g.game)}
+                                        </Text>
+                                    </View>
+                                    <Text style={{ color: '#888', flex: 1, marginLeft: 12 }}>
+                                        {formatTime(g.ended_at)}
+                                    </Text>
+                                    <Text style={{ color: g.isWin ? '#39ff14' : '#ff4444', fontWeight: 'bold' }}>
+                                        {g.isWin ? '+' : '-'}${g.amount}
+                                    </Text>
+
+                                    {hoveredId === g.id && (
+                                        <View style={perfStyles.hoverOverlay}>
+                                            <button
+                                                style={perfStyles.shareButton}
+                                                onClick={() => setShareGame(g)}
+                                            >
+                                                <span>↗</span>
+                                                <span>Share</span>
+                                            </button>
+                                        </View>
+                                    )}
+                                </View>
+                            ))}
+                        </View>
+                    ))}
+                </View>
+            )}
+        </View>
+    );
+}
+
+function formatGameName(game?: string): string {
+    switch (game) {
+        case 'wasteland': return 'Wasteland';
+        case 'gladiatorz':
+        default: return 'Gladiatorz';
+    }
+}
+
+// "Today" / "Yesterday" / "Mon, Mar 15" relative to local time
+function formatDayLabel(dateIso: string): string {
+    const d = new Date(dateIso);
+    const today = new Date();
+    const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const diffDays = Math.round((startOf(today) - startOf(d)) / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+// "2:45 PM" (or local 24h format)
+function formatTime(dateIso: string): string {
+    return new Date(dateIso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+// Preserve order (games already sorted desc by ended_at when queried)
+function groupGamesByDay(games: PerformanceGame[]): Array<{ label: string; items: PerformanceGame[] }> {
+    const groups: Array<{ label: string; items: PerformanceGame[] }> = [];
+    for (const g of games) {
+        const label = formatDayLabel(g.ended_at);
+        const last = groups[groups.length - 1];
+        if (last && last.label === label) {
+            last.items.push(g);
+        } else {
+            groups.push({ label, items: [g] });
+        }
+    }
+    return groups;
+}
+
+// ============================================
+// Share-game modal (opened from hover overlay)
+// ============================================
+function ShareGameModal({ game, onClose }: { game: PerformanceGame; onClose: () => void }) {
+    const [copied, setCopied] = useState(false);
+
+    const gameName = formatGameName(game.game);
+    const amountStr = `$${game.amount}`;
+    const siteUrl = 'https://hard2kill.me';
+
+    const shareText = game.isWin
+        ? `Just won ${amountStr} in ${gameName} on HARD2KILL 🎮 ${siteUrl}`
+        : `Took an L (${amountStr}) in ${gameName} on HARD2KILL. Come try to beat me. ${siteUrl}`;
+
+    async function handleCopy() {
+        try {
+            await navigator.clipboard.writeText(shareText);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch (err) {
+            console.error('Copy failed', err);
+        }
+    }
+
+    function handleTwitter() {
+        const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }
+
+    return (
+        <div style={depositStyles.overlay} onClick={onClose}>
+            <div style={{ ...depositStyles.modal, minWidth: isMobile ? 'auto' : 420 }} onClick={(e) => e.stopPropagation()}>
+                <Text style={depositStyles.title}>Share this game</Text>
+                <Space size="m" />
+
+                {/* Recap card */}
+                <View style={shareStyles.recap}>
+                    <View style={shareStyles.recapHeader}>
+                        <View style={perfStyles.gamePill}>
+                            <Text style={perfStyles.gamePillText}>{gameName}</Text>
+                        </View>
+                        <Text style={shareStyles.recapDate}>
+                            {new Date(game.ended_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </Text>
+                    </View>
+                    <Space size="s" />
+                    <Text style={{
+                        ...shareStyles.recapAmount,
+                        color: game.isWin ? '#39ff14' : '#ff4444',
+                    }}>
+                        {game.isWin ? '+' : '-'}{amountStr}
+                    </Text>
+                    <Text style={shareStyles.recapLabel}>
+                        {game.isWin ? 'Won' : 'Lost'} on HARD2KILL
+                    </Text>
+                </View>
+
+                <Space size="m" />
+                <Text style={{ color: '#888', fontSize: 13 }}>Preview</Text>
+                <Space size="xs" />
+                <View style={shareStyles.textPreview}>
+                    <Text style={{ color: '#ddd', fontSize: 13, lineHeight: 1.5 }}>{shareText}</Text>
+                </View>
+
+                <Space size="m" />
+
+                <View style={shareStyles.actions}>
+                    <button className="btn-3d" onClick={handleTwitter} style={{ flex: 1 }}>
+                        <span className="btn-3d-top">SHARE ON X</span>
+                    </button>
+                    <button
+                        className="btn-3d btn-3d-secondary"
+                        onClick={handleCopy}
+                        style={{ flex: 1 }}
+                    >
+                        <span className="btn-3d-top btn-3d-top-secondary">
+                            {copied ? 'COPIED!' : 'COPY TEXT'}
+                        </span>
+                    </button>
+                </View>
+
+                <Space size="s" />
+                <button
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#666',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        padding: 8,
+                        fontFamily: 'inherit',
+                    }}
+                    onClick={onClose}
+                >
+                    Close
+                </button>
+            </div>
+        </div>
+    );
+}
+
+const shareStyles: { [key: string]: React.CSSProperties } = {
+    recap: {
+        backgroundColor: '#0a0a0a',
+        border: '1px solid #222',
+        borderRadius: 12,
+        padding: 20,
+        display: 'flex',
+        flexDirection: 'column',
+    },
+    recapHeader: {
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    recapDate: {
+        color: '#666',
+        fontSize: 12,
+        letterSpacing: 0.5,
+    },
+    recapAmount: {
+        fontSize: 48,
+        fontWeight: 'bold',
+        fontFamily: '"Zen Dots", sans-serif',
+        letterSpacing: -1,
+    },
+    recapLabel: {
+        color: '#888',
+        fontSize: 13,
+        letterSpacing: 0.5,
+    },
+    textPreview: {
+        backgroundColor: '#0a0a0a',
+        border: '1px solid #222',
+        borderRadius: 8,
+        padding: 12,
+    },
+    actions: {
+        display: 'flex',
+        flexDirection: 'row',
+        gap: 12,
+    },
+};
+
+const perfStyles: { [key: string]: React.CSSProperties } = {
+    statsRow: {
+        display: 'grid',
+        gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)',
+        gap: 12,
+    },
+    statCard: {
+        backgroundColor: '#111',
+        border: '1px solid #333',
+        borderRadius: 10,
+        padding: isMobile ? 14 : 18,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+    },
+    statLabel: {
+        fontSize: 11,
+        color: '#666',
+        letterSpacing: 1,
+    },
+    statValue: {
+        fontSize: isMobile ? 20 : 26,
+        fontWeight: 'bold',
+        color: '#fff',
+    },
+    sectionTitle: {
+        fontSize: isMobile ? 16 : 18,
+        color: '#888',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+    },
+    historyList: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 20,
+    },
+    historyGroup: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+    },
+    historyDayLabel: {
+        fontSize: 12,
+        color: '#666',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: 4,
+    },
+    historyRow: {
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#111',
+        border: '1px solid #222',
+        borderRadius: 8,
+        padding: '12px 16px',
+    },
+    gamePill: {
+        padding: '4px 10px',
+        borderRadius: 4,
+        backgroundColor: '#1a1a1a',
+        border: '1px solid #2a2a2a',
+    },
+    hoverOverlay: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        paddingRight: 12,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        background: 'linear-gradient(to left, rgba(17,17,17,0.98) 60%, rgba(17,17,17,0))',
+        borderRadius: 8,
+    },
+    shareButton: {
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#39ff14',
+        color: '#000',
+        border: 'none',
+        borderRadius: 6,
+        padding: '6px 12px',
+        fontSize: 13,
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+    },
+    gamePillText: {
+        fontSize: 11,
+        color: '#bbb',
+        letterSpacing: 0.3,
+        fontWeight: 600,
+    },
+};
+
+// ============================================
+// Sidebar page: Wallet
+// ============================================
+// ============================================
+// Currency toggle (Cash / Coins)
+// ============================================
+function CurrencyToggle({
+    value,
+    onChange,
+    disabled,
+}: {
+    value: 'cash' | 'coins';
+    onChange: (v: 'cash' | 'coins') => void;
+    disabled?: boolean;
+}) {
+    const options: Array<{ id: 'cash' | 'coins'; label: string }> = [
+        { id: 'cash', label: '$ Cash' },
+        { id: 'coins', label: '🪙 Coins' },
+    ];
+    return (
+        <View style={currencyToggleStyles.container}>
+            {options.map((opt) => (
+                <button
+                    key={opt.id}
+                    style={{
+                        ...currencyToggleStyles.button,
+                        backgroundColor: value === opt.id ? '#39ff14' : 'transparent',
+                        color: value === opt.id ? '#000' : '#aaa',
+                    }}
+                    onClick={() => onChange(opt.id)}
+                    disabled={disabled}
+                >
+                    {opt.label}
+                </button>
+            ))}
+        </View>
+    );
+}
+
+const currencyToggleStyles: { [key: string]: React.CSSProperties } = {
+    container: {
+        display: 'inline-flex',
+        flexDirection: 'row',
+        backgroundColor: '#1a1a1a',
+        border: '1px solid #333',
+        borderRadius: 8,
+        padding: 3,
+        gap: 2,
+        alignSelf: 'flex-start',
+    },
+    button: {
+        border: 'none',
+        outline: 'none',
+        padding: '6px 12px',
+        borderRadius: 6,
+        cursor: 'pointer',
+        fontSize: 13,
+        fontWeight: 'bold',
+        fontFamily: 'inherit',
+        transition: 'background-color 0.15s, color 0.15s',
+    },
+};
+
+interface WithdrawalRecord {
+    id: string;
+    amount: number;
+    payment_method: string;
+    status: string;
+    created_at: string;
+}
+
+function WalletPage({
+    userId,
+    balance,
+    onDeposit,
+    onWithdraw,
+}: {
+    userId: string;
+    balance: number | null;
+    onDeposit: () => void;
+    onWithdraw: () => void;
+}) {
+    const [withdrawals, setWithdrawals] = useState<WithdrawalRecord[] | null>(null);
+
+    useEffect(() => {
+        async function load() {
+            const { data, error } = await supabase
+                .from('withdrawal_requests')
+                .select('id, amount, payment_method, status, created_at')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            if (error) {
+                console.error('Withdrawals fetch error:', error);
+                setWithdrawals([]);
+                return;
+            }
+            setWithdrawals(data || []);
+        }
+        load();
+    }, [userId]);
+
+    return (
+        <View>
+            <View style={walletStyles.balanceCard}>
+                <Text style={walletStyles.balanceLabel}>CURRENT BALANCE</Text>
+                <Space size="xs" />
+                <Text style={walletStyles.balanceValue}>
+                    ${balance !== null ? balance.toLocaleString('en-US') : '...'}
+                </Text>
+            </View>
+
+            <Space size="l" />
+
+            <View style={walletStyles.actionsRow}>
+                <button className="btn-3d" onClick={onDeposit}>
+                    <span className="btn-3d-top">DEPOSIT</span>
+                </button>
+                <button className="btn-3d btn-3d-secondary" onClick={onWithdraw}>
+                    <span className="btn-3d-top btn-3d-top-secondary">WITHDRAW</span>
+                </button>
+            </View>
+
+            <Space size="l" />
+
+            <Text style={walletStyles.sectionTitle}>Withdrawal history</Text>
+            <Space size="s" />
+
+            {withdrawals === null ? (
+                <Text style={{ color: '#666' }}>Loading...</Text>
+            ) : withdrawals.length === 0 ? (
+                <Text style={{ color: '#666' }}>No withdrawal requests yet.</Text>
+            ) : (
+                <View style={walletStyles.historyList}>
+                    {withdrawals.map((w) => {
+                        const method = parseWithdrawalMethod(w.payment_method);
+                        const statusStyle = statusToStyle(w.status);
+                        return (
+                            <View key={w.id} style={walletStyles.historyRow}>
+                                <View style={{ ...walletStyles.statusBadge, backgroundColor: statusStyle.bg, color: statusStyle.color }}>
+                                    <Text style={{ fontSize: 11, fontWeight: 'bold', color: statusStyle.color, letterSpacing: 0.5 }}>
+                                        {w.status.toUpperCase()}
+                                    </Text>
+                                </View>
+                                <View style={{ flex: 1, marginLeft: 16, display: 'flex', flexDirection: 'column' }}>
+                                    <Text style={{ color: '#fff', fontWeight: 600 }}>{method}</Text>
+                                    <Text style={{ color: '#888', fontSize: 12 }}>
+                                        {new Date(w.created_at).toLocaleString()}
+                                    </Text>
+                                </View>
+                                <Text style={{ color: '#39ff14', fontWeight: 'bold' }}>
+                                    ${w.amount.toLocaleString('en-US')}
+                                </Text>
+                            </View>
+                        );
+                    })}
+                </View>
+            )}
+        </View>
+    );
+}
+
+// Parse the JSON `payment_method` string and return a short human-readable label
+function parseWithdrawalMethod(raw: string): string {
+    try {
+        const parsed = JSON.parse(raw);
+        const method = parsed.method || 'unknown';
+        const labels: Record<string, string> = {
+            paypal: 'PayPal',
+            ethereum: 'Ethereum',
+            solana: 'Solana',
+            bank: 'Bank transfer',
+        };
+        return labels[method] || method.charAt(0).toUpperCase() + method.slice(1);
+    } catch {
+        return 'Unknown method';
+    }
+}
+
+function statusToStyle(status: string): { bg: string; color: string } {
+    switch (status) {
+        case 'completed':
+        case 'paid':
+            return { bg: 'rgba(57, 255, 20, 0.15)', color: '#39ff14' };
+        case 'rejected':
+        case 'failed':
+        case 'cancelled':
+            return { bg: 'rgba(255, 68, 68, 0.15)', color: '#ff4444' };
+        case 'pending':
+        default:
+            return { bg: 'rgba(245, 197, 24, 0.15)', color: '#f5c518' };
+    }
+}
+
+const walletStyles: { [key: string]: React.CSSProperties } = {
+    balanceCard: {
+        backgroundColor: '#111',
+        border: '1px solid #333',
+        borderRadius: 12,
+        padding: isMobile ? 24 : 32,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+    },
+    balanceLabel: {
+        fontSize: 12,
+        color: '#666',
+        letterSpacing: 2,
+    },
+    balanceValue: {
+        fontSize: isMobile ? 40 : 56,
+        fontWeight: 'bold',
+        fontFamily: '"Zen Dots", sans-serif',
+        color: '#39ff14',
+    },
+    actionsRow: {
+        display: 'flex',
+        flexDirection: 'row',
+        gap: 16,
+        flexWrap: 'wrap',
+    },
+    sectionTitle: {
+        fontSize: isMobile ? 16 : 18,
+        color: '#888',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+    },
+    historyList: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+    },
+    historyRow: {
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#111',
+        border: '1px solid #222',
+        borderRadius: 8,
+        padding: '12px 16px',
+    },
+    statusBadge: {
+        padding: '4px 10px',
+        borderRadius: 4,
+        minWidth: 84,
+        textAlign: 'center',
+    },
+};
 
 function LeaderboardModal({ onClose }: { onClose: () => void }) {
     const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
