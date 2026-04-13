@@ -16,7 +16,7 @@ import { GameRoom } from './rooms/GameRoom';
 import { MatchmakingRoom } from './rooms/MatchmakingRoom';
 import { WastelandGameRoom } from './rooms/WastelandGameRoom';
 import { WastelandMatchmakingRoom } from './rooms/WastelandMatchmakingRoom';
-import { creditBalance, supabase } from '@hard2kill/shared';
+import { creditBalance, supabase, claimCoins, getCoinClaimStatus } from '@hard2kill/shared';
 
 const PORT = Number(process.env.PORT || Constants.WS_PORT);
 const PUBLIC_DIR = join(__dirname, '../../platform/public');
@@ -116,6 +116,36 @@ app.post('/api/create-checkout', async (req, res) => {
     } catch (error: any) {
         console.error('Stripe checkout error:', error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Claim hourly coins
+app.post('/api/claim-coins', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId || typeof userId !== 'string') {
+        return res.status(400).json({ error: 'Invalid userId' });
+    }
+    try {
+        const result = await claimCoins(userId);
+        return res.json(result);
+    } catch (err: any) {
+        console.error('[claim-coins] error:', err);
+        return res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get coin claim status (balance + next claim time) without claiming
+app.get('/api/coin-status', async (req, res) => {
+    const userId = typeof req.query.userId === 'string' ? req.query.userId : '';
+    if (!userId) {
+        return res.status(400).json({ error: 'Invalid userId' });
+    }
+    try {
+        const status = await getCoinClaimStatus(userId);
+        return res.json(status);
+    } catch (err: any) {
+        console.error('[coin-status] error:', err);
+        return res.status(500).json({ error: 'Server error' });
     }
 });
 

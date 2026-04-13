@@ -22,6 +22,7 @@ export class GameRoom extends Room<GameState> {
         const roomName = options.roomName.slice(0, Constants.ROOM_NAME_MAX);
 
         const betAmount = options.betAmount || Constants.DEFAULT_BET_AMOUNT;
+        const currency: 'cash' | 'coins' = options.currency === 'coins' ? 'coins' : 'cash';
 
         // Init Metadata
         this.setMetadata({
@@ -31,10 +32,11 @@ export class GameRoom extends Room<GameState> {
             roomMaxPlayers: this.maxClients,
             mode: options.mode,
             betAmount,
+            currency,
         });
 
         // Init State
-        this.setState(new GameState(roomName, options.roomMap, this.maxClients, options.mode, betAmount, this.handleMessage));
+        this.setState(new GameState(roomName, options.roomMap, this.maxClients, options.mode, betAmount, currency, this.handleMessage));
 
         this.setSimulationInterval(() => this.handleTick());
 
@@ -66,17 +68,18 @@ export class GameRoom extends Room<GameState> {
 
     async onJoin(client: Client, options: Types.PlayerOptions) {
         const betAmount = this.state.game.betAmount;
+        const currency = this.state.game.currency;
 
-        // Check and deduct balance if user has odinsId
+        // Check and deduct balance if user has odinsId (uses the match's currency wallet)
         if (options.odinsId && betAmount > 0) {
-            console.log(`${new Date().toISOString()} [Bet Check] userId=${options.odinsId} betAmount=${betAmount}`);
-            const balance = await getBalance(options.odinsId);
-            console.log(`${new Date().toISOString()} [Bet Check] userId=${options.odinsId} balance=${balance}`);
+            console.log(`${new Date().toISOString()} [Bet Check] userId=${options.odinsId} betAmount=${betAmount} currency=${currency}`);
+            const balance = await getBalance(options.odinsId, currency);
+            console.log(`${new Date().toISOString()} [Bet Check] userId=${options.odinsId} balance=${balance} ${currency}`);
             if (balance < betAmount) {
-                throw new Error(`Insufficient balance. Need ${betAmount}, have ${balance}`);
+                throw new Error(`Insufficient ${currency} balance. Need ${betAmount}, have ${balance}`);
             }
-            await deductBalance(options.odinsId, betAmount);
-            console.log(`${new Date().toISOString()} [Bet] Deducted ${betAmount} from ${options.odinsId}`);
+            await deductBalance(options.odinsId, betAmount, currency);
+            console.log(`${new Date().toISOString()} [Bet] Deducted ${betAmount} ${currency} from ${options.odinsId}`);
         }
 
         this.state.playerAdd(client.sessionId, options.playerName, options.odinsId);
