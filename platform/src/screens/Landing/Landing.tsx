@@ -856,6 +856,13 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                     </button>
                 )}</View>
             <Space size="xl" />
+            <button className="coin-pill" onClick={showAuth} style={styles.coinPill}>
+                <span style={styles.coinPillIcon}>🪙</span>
+                <span style={styles.coinPillText}>
+                    Claim <strong style={styles.coinPillAmount}>10 free coins</strong> when you sign up
+                </span>
+            </button>
+            <Space size="s" />
             <Text style={styles.tagline}>Play PvP games. Beat the opponent. Take their money</Text>
             <Space size="xs" />
             <Text style={styles.mainHeading}>SKILL-BASED BETTING</Text>
@@ -1983,6 +1990,36 @@ const styles: { [key: string]: React.CSSProperties } = {
         textAlign: 'center',
         textTransform: 'uppercase',
         letterSpacing: 2,
+    },
+    coinPill: {
+        display: 'inline-flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        backgroundColor: 'rgba(245, 197, 24, 0.1)',
+        border: '1px solid rgba(245, 197, 24, 0.4)',
+        borderRadius: 999,
+        padding: isMobile ? '8px 14px' : '10px 18px',
+        fontSize: isMobile ? 13 : 14,
+        fontFamily: 'inherit',
+        color: '#f5c518',
+        cursor: 'pointer',
+        transition: 'background-color 0.15s, border-color 0.15s',
+        outline: 'none',
+    },
+    coinPillIcon: {
+        fontSize: isMobile ? 14 : 16,
+    },
+    coinPillText: {
+        color: '#e8d98a',
+    },
+    coinPillAmount: {
+        color: '#f5c518',
+        fontWeight: 700,
+    },
+    coinPillArrow: {
+        color: '#f5c518',
+        fontWeight: 700,
     },
     mainHeading: {
         fontSize: isMobile ? 32 : 56,
