@@ -16,6 +16,9 @@ import { GameRoom } from './rooms/GameRoom';
 import { MatchmakingRoom } from './rooms/MatchmakingRoom';
 import { WastelandGameRoom } from './rooms/WastelandGameRoom';
 import { WastelandMatchmakingRoom } from './rooms/WastelandMatchmakingRoom';
+import { CS16MatchmakingRoom } from './rooms/CS16MatchmakingRoom';
+import { getMatch, resolveMatch, CS16MatchResult } from './cs16/matchEvents';
+import { verifyWebhookSignature } from './cs16/tokens';
 import { creditBalance, supabase, claimCoins, getCoinClaimStatus } from '@hard2kill/shared';
 
 const PORT = Number(process.env.PORT || Constants.WS_PORT);
@@ -71,6 +74,50 @@ app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), async
     }
 
     res.json({ received: true });
+});
+
+// CS 1.6 match-result webhook — sidecar on CS droplet POSTs here with HMAC signature in X-H2K-Signature header
+// Uses raw body so HMAC can be verified byte-for-byte before JSON.parse
+app.post('/api/cs16/match-result', express.raw({ type: 'application/json' }), async (req, res) => {
+    const signature = req.header('x-h2k-signature') || '';
+    const rawBody = req.body.toString('utf8');
+
+    if (!verifyWebhookSignature(rawBody, signature)) {
+        console.warn('[CS16 webhook] Invalid signature');
+        return res.status(401).json({ error: 'Invalid signature' });
+    }
+
+    let payload: CS16MatchResult;
+    try {
+        payload = JSON.parse(rawBody) as CS16MatchResult;
+    } catch {
+        return res.status(400).json({ error: 'Invalid JSON' });
+    }
+
+    if (!payload.matchId) {
+        return res.status(400).json({ error: 'Missing matchId' });
+    }
+
+    const match = getMatch(payload.matchId);
+    if (!match) {
+        console.warn(`[CS16 webhook] Unknown matchId: ${payload.matchId}`);
+        return res.status(404).json({ error: 'Unknown match' });
+    }
+
+    // Validate the winner/loser belong to this match
+    const validUserIds = new Set([match.p1.userId, match.p2.userId]);
+    if (payload.winnerId && !validUserIds.has(payload.winnerId)) {
+        console.warn(`[CS16 webhook] winnerId ${payload.winnerId} not in match ${payload.matchId}`);
+        return res.status(400).json({ error: 'winnerId not in match' });
+    }
+    if (payload.loserId && !validUserIds.has(payload.loserId)) {
+        console.warn(`[CS16 webhook] loserId ${payload.loserId} not in match ${payload.matchId}`);
+        return res.status(400).json({ error: 'loserId not in match' });
+    }
+
+    console.log(`[CS16 webhook] Result for ${payload.matchId}: winner=${payload.winnerId} loser=${payload.loserId} reason=${payload.reason}`);
+    await resolveMatch(payload);
+    return res.json({ ok: true });
 });
 
 app.use(express.json());
@@ -160,6 +207,7 @@ server.define(Constants.ROOM_NAME, GameRoom).filterBy(['matchId']); // Gladiator
 server.define('matchmaking', MatchmakingRoom);
 server.define('wasteland', WastelandGameRoom).filterBy(['matchId']); // Wasteland game
 server.define('wasteland-matchmaking', WastelandMatchmakingRoom); // Wasteland matchmaking
+server.define('cs16-matchmaking', CS16MatchmakingRoom); // deduct+register on pair; no CS16 game room — client redirects to fps.hard2kill.me
 
 // Serve static resources from the "public" folder
 app.use(express.static(PUBLIC_DIR));
