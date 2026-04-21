@@ -91,14 +91,23 @@ export class CS16MatchmakingRoom extends Room {
             return;
         }
 
-        const p1Token = signMatchToken({
-            matchId, userId: newPlayer.odinsId, username: newPlayer.playerName,
-            betAmount: newPlayer.betAmount, currency: newPlayer.currency, exp,
-        });
-        const p2Token = signMatchToken({
-            matchId, userId: opponent.odinsId, username: opponent.playerName,
-            betAmount: opponent.betAmount, currency: opponent.currency, exp,
-        });
+        let p1Token: string;
+        let p2Token: string;
+        try {
+            p1Token = signMatchToken({
+                matchId, userId: newPlayer.odinsId, username: newPlayer.playerName,
+                betAmount: newPlayer.betAmount, currency: newPlayer.currency, exp,
+            });
+            p2Token = signMatchToken({
+                matchId, userId: opponent.odinsId, username: opponent.playerName,
+                betAmount: opponent.betAmount, currency: opponent.currency, exp,
+            });
+        } catch (err: any) {
+            console.error('[CS16 Matchmaking] signMatchToken failed:', err?.message);
+            newPlayer.client.send('matchmaking:error', { message: 'Server misconfigured (tokens) — contact support' });
+            opponent.client.send('matchmaking:error', { message: 'Server misconfigured (tokens) — contact support' });
+            return;
+        }
 
         const payload = (token: string, self: WaitingPlayer, other: WaitingPlayer, isCreator: boolean) => ({
             matchId,
