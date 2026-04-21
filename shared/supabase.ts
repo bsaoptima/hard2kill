@@ -268,7 +268,7 @@ export async function getCoinClaimStatus(userId: string): Promise<{ coins: numbe
 /**
  * Log game result to database for leaderboard/analytics
  */
-export type GameName = 'gladiatorz' | 'wasteland';
+export type GameName = 'gladiatorz' | 'wasteland' | 'cs16';
 
 export async function logGameResult(
     winnerId: string,

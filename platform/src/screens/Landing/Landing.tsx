@@ -33,6 +33,13 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
     const wastelandClientRef = useRef<Client | null>(null);
     const wastelandRoomRef = useRef<any>(null);
 
+    // CS 1.6 matchmaking state
+    const [isCS16Matchmaking, setIsCS16Matchmaking] = useState(false);
+    const [cs16MatchmakingStatus, setCS16MatchmakingStatus] = useState('');
+    const [selectedCS16Bet, setSelectedCS16Bet] = useState(Constants.DEFAULT_BET_AMOUNT);
+    const cs16ClientRef = useRef<Client | null>(null);
+    const cs16RoomRef = useRef<any>(null);
+
     // Gladiatorz matchmaking state
     const [isGladiatorMatchmaking, setIsGladiatorMatchmaking] = useState(false);
     const [gladiatorMatchmakingStatus, setGladiatorMatchmakingStatus] = useState('');
@@ -47,6 +54,7 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
     const [coins, setCoins] = useState<number | null>(null);
     const [gladiatorCurrency, setGladiatorCurrency] = useState<Currency>('cash');
     const [wastelandCurrency, setWastelandCurrency] = useState<Currency>('cash');
+    const [cs16Currency, setCS16Currency] = useState<Currency>('cash');
     const [coinNextClaimAt, setCoinNextClaimAt] = useState<number>(0); // epoch ms
     const [coinClaimTick, setCoinClaimTick] = useState(0); // forces re-render each second for countdown
     const [claiming, setClaiming] = useState(false);
@@ -398,6 +406,93 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
         }
     }
 
+    async function handleCS16Matchmaking() {
+        if (!userId) {
+            showAuth('Login to play');
+            return;
+        }
+
+        if (isCS16Matchmaking) {
+            if (cs16RoomRef.current) {
+                cs16RoomRef.current.leave();
+                cs16RoomRef.current = null;
+            }
+            setIsCS16Matchmaking(false);
+            setCS16MatchmakingStatus('');
+            return;
+        }
+
+        const currency = cs16Currency;
+        const walletBalance = currency === 'coins' ? coins : balance;
+        if (walletBalance === null || walletBalance < selectedCS16Bet) {
+            const prefix = currency === 'coins' ? '' : '$';
+            const suffix = currency === 'coins' ? ' coins' : '';
+            setCS16MatchmakingStatus(`Insufficient ${currency}. Need ${prefix}${selectedCS16Bet}${suffix} to play.`);
+            return;
+        }
+
+        setIsCS16Matchmaking(true);
+        setCS16MatchmakingStatus('Connecting...');
+
+        try {
+            const host = window.document.location.host.replace(/:.*/, '');
+            const port = process.env.NODE_ENV !== 'production' ? Constants.WS_PORT : window.location.port;
+            const url = `${window.location.protocol.replace('http', 'ws')}//${host}${port ? `:${port}` : ''}`;
+
+            cs16ClientRef.current = new Client(url);
+
+            const playerName = localStorage.getItem('playerName') || 'Player';
+
+            cs16RoomRef.current = await cs16ClientRef.current.joinOrCreate('cs16-matchmaking', {
+                playerName,
+                odinsId: userId,
+                betAmount: selectedCS16Bet,
+                currency,
+            });
+
+            const display = currency === 'coins' ? `${selectedCS16Bet} coins` : `$${selectedCS16Bet}`;
+            setCS16MatchmakingStatus(`Waiting for ${display} opponent...`);
+
+            cs16RoomRef.current.onMessage('matchmaking:status', (data: any) => {
+                setCS16MatchmakingStatus(`Waiting for opponent... (Position: ${data.position})`);
+            });
+
+            cs16RoomRef.current.onMessage('matchmaking:found', async (data: any) => {
+                setCS16MatchmakingStatus('Match found! Launching...');
+                if (cs16RoomRef.current) {
+                    cs16RoomRef.current.leave();
+                    cs16RoomRef.current = null;
+                }
+
+                // Redirect straight to the CS server with token in query string.
+                // The CS client reads params on boot and issues setinfo + connect.
+                const host = data.serverHost || 'fps.hard2kill.me';
+                const params = new URLSearchParams({
+                    matchId: data.matchId,
+                    token: data.token,
+                    name: data.playerName,
+                    opponent: data.opponentName,
+                    connect: data.serverConnect || 'fps.hard2kill.me:27018',
+                });
+                window.location.href = `https://${host}/?${params.toString()}`;
+            });
+
+            cs16RoomRef.current.onMessage('matchmaking:error', (data: any) => {
+                setCS16MatchmakingStatus(data.message || 'Matchmaking error');
+                setIsCS16Matchmaking(false);
+            });
+
+            cs16RoomRef.current.onLeave(() => {
+                setIsCS16Matchmaking(false);
+                setCS16MatchmakingStatus('');
+            });
+        } catch (error) {
+            console.error('CS16 matchmaking error:', error);
+            setIsCS16Matchmaking(false);
+            setCS16MatchmakingStatus('Error connecting');
+        }
+    }
+
     async function handleGladiatorMatchmaking() {
         if (!userId) {
             showAuth('Login to play');
@@ -604,6 +699,81 @@ export function LandingScreen({ navigate, location }: LandingScreenProps) {
                             <Space size="l" />
 
                             <View style={{ ...styles.gamesGrid, maxWidth: '100%', paddingLeft: 0, paddingRight: 0, alignItems: 'stretch' }}>
+                                <View style={{ ...styles.gameCard, padding: isMobile ? 16 : 20 }}>
+                                    <a
+                                        href="https://fps.hard2kill.me/"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{
+                                            overflow: 'hidden',
+                                            borderRadius: 8,
+                                            width: '100%',
+                                            maxWidth: isMobile ? '100%' : 500,
+                                            flex: isMobile ? 'none' : '0 1 500px',
+                                            minWidth: 0,
+                                            height: isMobile ? 200 : 350,
+                                            background: 'linear-gradient(135deg, #1a1a2e 0%, #0a0a0a 50%, #1a2e1a 100%)',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            textDecoration: 'none',
+                                            position: 'relative',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        <div style={{ fontSize: isMobile ? 24 : 36, fontWeight: 900, color: '#39ff14', letterSpacing: 3, textShadow: '0 0 30px rgba(57,255,20,0.4)' }}>CS 1.6</div>
+                                        <div style={{ marginTop: 8, fontSize: 13, color: '#888', fontWeight: 600, letterSpacing: 1 }}>CLICK TO TRY FREE →</div>
+                                        <div style={{ position: 'absolute', bottom: 12, right: 14, fontSize: 11, color: '#555' }}>fps.hard2kill.me</div>
+                                    </a>
+                                    <View style={styles.gameCardContent}>
+                                        <Text style={styles.gameTitle}>Counter-Strike 1.6</Text>
+                                        <Space size="xs" />
+                                        <Text style={styles.gameDescription}>Deathmatch. First to 10 kills or highest score in 3 minutes wins the pot.</Text>
+                                        <Space size="m" />
+                                        <CurrencyToggle
+                                            value={cs16Currency}
+                                            onChange={setCS16Currency}
+                                            disabled={isCS16Matchmaking}
+                                        />
+                                        <Space size="s" />
+                                        <View style={styles.betSelector}>
+                                            <Text style={styles.betLabel}>BET AMOUNT</Text>
+                                            <View style={styles.betOptions}>
+                                                {Constants.BET_AMOUNTS.map((amount) => (
+                                                    <button
+                                                        key={amount}
+                                                        style={{
+                                                            ...styles.betButton,
+                                                            backgroundColor: selectedCS16Bet === amount ? '#39ff14' : '#222',
+                                                            color: selectedCS16Bet === amount ? '#000' : '#fff',
+                                                            borderColor: selectedCS16Bet === amount ? '#39ff14' : '#333',
+                                                        }}
+                                                        onClick={() => setSelectedCS16Bet(amount)}
+                                                        disabled={isCS16Matchmaking}
+                                                    >
+                                                        {cs16Currency === 'coins' ? `🪙 ${amount}` : `$${amount}`}
+                                                    </button>
+                                                ))}
+                                            </View>
+                                        </View>
+                                        <Space size="m" />
+                                        <button className="btn-3d" onClick={handleCS16Matchmaking}>
+                                            <span className="btn-3d-top">
+                                                {isCS16Matchmaking
+                                                    ? 'CANCEL'
+                                                    : `FIND ${cs16Currency === 'coins' ? `🪙 ${selectedCS16Bet}` : `$${selectedCS16Bet}`} MATCH`}
+                                            </span>
+                                        </button>
+                                        {cs16MatchmakingStatus && (
+                                            <>
+                                                <Space size="s" />
+                                                <Text style={styles.statusText}>{cs16MatchmakingStatus}</Text>
+                                            </>
+                                        )}
+                                    </View>
+                                </View>
+
                                 <View style={{ ...styles.gameCard, padding: isMobile ? 16 : 20 }}>
                                     <div style={{
                                         overflow: 'hidden',
