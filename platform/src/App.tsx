@@ -1,11 +1,7 @@
 import { LocationProvider, Router } from '@reach/router';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { GameScreen } from './screens/Game/Game';
-import { HomeScreen } from './screens/Home/Home';
 import { LandingScreen } from './screens/Landing/Landing';
 import { ProfileScreen } from './screens/Profile/Profile';
-import { FPS2Screen } from './screens/FPS2/FPS2';
-import { ThreeFPSScreen } from './screens/ThreeFPS/ThreeFPS';
 import { supabase } from '@hard2kill/shared';
 
 interface AuthContextType {
@@ -85,11 +81,7 @@ function RoutedApp(): React.ReactElement {
     return (
         <Router>
             <LandingScreen default path="/" />
-            <HomeScreen path="/lobby" />
             <ProfileScreen path="/profile" />
-            <FPS2Screen path="/fps2" />
-            <ThreeFPSScreen path="/three-fps" />
-            <GameScreen path="/:roomId" />
         </Router>
     );
 }

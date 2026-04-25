@@ -5,23 +5,21 @@ import { join } from 'path';
 config({ path: join(__dirname, '../../.env') });
 
 import { monitor, MonitorOptions } from '@colyseus/monitor';
-import { Constants } from '@hard2kill/gladiatorz-common';
 import { Server } from 'colyseus';
 import compression from 'compression';
 import cors from 'cors';
 import express from 'express';
 import { createServer } from 'http';
 import Stripe from 'stripe';
-import { GameRoom } from './rooms/GameRoom';
-import { MatchmakingRoom } from './rooms/MatchmakingRoom';
-import { WastelandGameRoom } from './rooms/WastelandGameRoom';
-import { WastelandMatchmakingRoom } from './rooms/WastelandMatchmakingRoom';
 import { CS16MatchmakingRoom } from './rooms/CS16MatchmakingRoom';
 import { getMatch, resolveMatch, CS16MatchResult } from './cs16/matchEvents';
 import { verifyWebhookSignature } from './cs16/tokens';
 import { creditBalance, supabase, claimCoins, getCoinClaimStatus } from '@hard2kill/shared';
 
-const PORT = Number(process.env.PORT || Constants.WS_PORT);
+// Inlined from former @hard2kill/gladiatorz-common — only WS_PORT was used here.
+const WS_PORT = 3001;
+
+const PORT = Number(process.env.PORT || WS_PORT);
 const PUBLIC_DIR = join(__dirname, '../../platform/public');
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
@@ -202,12 +200,10 @@ const server = new Server({
     server: httpServer,
 });
 
-// Game Rooms
-server.define(Constants.ROOM_NAME, GameRoom).filterBy(['matchId']); // GladiatorZ
-server.define('matchmaking', MatchmakingRoom);
-server.define('wasteland', WastelandGameRoom).filterBy(['matchId']); // Wasteland game
-server.define('wasteland-matchmaking', WastelandMatchmakingRoom); // Wasteland matchmaking
-server.define('cs16-matchmaking', CS16MatchmakingRoom); // deduct+register on pair; no CS16 game room — client redirects to fps.hard2kill.me
+// CS16 matchmaking — pairs two players, mints HMAC token, redirects clients to fps.hard2kill.me
+// where the dedicated CS server runs. Match outcome lands at /api/cs16/match-result above.
+// No CS16 game room — there's nothing for the platform server to do once players are redirected.
+server.define('cs16-matchmaking', CS16MatchmakingRoom);
 
 // Serve static resources from the "public" folder
 app.use(express.static(PUBLIC_DIR));
